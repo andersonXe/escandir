@@ -1,5 +1,9 @@
 # Publica o editor no GitHub Pages.
 #
+# As actions estão nos majores que rodam em node24: o runner avisa de
+# obsolescência quando a action declara node20 internamente, e isso não tem
+# relação com o node-version do setup-node abaixo, que é o Node do build.
+#
 # O léxico de rimas não está no repositório: são 7 MB gerados a partir de duas
 # listas públicas (ver NOTICE.md). Este workflow baixa as listas e roda o
 # gerador, que é o passo que faz a busca de rimas existir no site publicado.
@@ -26,9 +30,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -44,7 +48,7 @@ jobs:
 
       - name: listas de palavras em cache
         id: listas
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .cache/listas
           key: listas-pt-br-v1
@@ -73,9 +77,9 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build -w @escandir/editor
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: apps/editor/dist
 
@@ -87,4 +91,4 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
