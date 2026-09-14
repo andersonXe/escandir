@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# resíduo do canvas do Claude Design
+design/uploads/
+design/.thumbnail
+
+# léxico gerado: refaça com `npm run build:data -w @escandir/lexicon`
+apps/editor/public/lexico/
+
+# listas baixadas pelo CI para gerar o léxico
+.cache/

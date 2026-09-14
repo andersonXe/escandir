@@ -1,0 +1,24 @@
+{
+  "name": "@escandir/editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@types/node": "^26.5.1",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@escandir/lexicon": "^0.0.0"
+  }
+}

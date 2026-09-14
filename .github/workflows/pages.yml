@@ -1,0 +1,90 @@
+# Publica o editor no GitHub Pages.
+#
+# O léxico de rimas não está no repositório: são 7 MB gerados a partir de duas
+# listas públicas (ver NOTICE.md). Este workflow baixa as listas e roda o
+# gerador, que é o passo que faz a busca de rimas existir no site publicado.
+# As listas ficam em cache entre execuções — elas não mudam.
+
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Uma publicação por vez, e sem cancelar a que já está a meio caminho.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # O que impede publicar quebrado. Vale mais aqui do que em qualquer
+      # outro lugar: no Pages não há como voltar atrás sem outra publicação.
+      - name: verificar
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: listas de palavras em cache
+        id: listas
+        uses: actions/cache@v4
+        with:
+          path: .cache/listas
+          key: listas-pt-br-v1
+
+      - name: baixar as listas
+        if: steps.listas.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .cache/listas
+          curl -fsSL --retry 3 \
+            -o .cache/listas/palavras.txt \
+            https://raw.githubusercontent.com/pythonprobr/palavras/master/palavras.txt
+          curl -fsSL --retry 3 \
+            -o .cache/listas/frequencias.txt \
+            https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/pt_br/pt_br_full.txt
+
+      - name: gerar o léxico
+        run: |
+          node packages/lexicon/scripts/build.mjs \
+            .cache/listas/palavras.txt \
+            .cache/listas/frequencias.txt \
+            apps/editor/public/lexico
+
+      - name: montar o site
+        # Pages de projeto serve em /<repo>/; o `base` sai daqui.
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+        run: npm run build -w @escandir/editor
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/editor/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

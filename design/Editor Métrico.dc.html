@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;1,400&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; }
+  a { color: var(--elis); text-decoration: none; }
+  a:hover { color: var(--ink); }
+  @keyframes cb { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
+  [data-t="claro"] { --paper:#F4EFE5; --surface:#FBF8F1; --ink:#241F1A; --ink2:#6E6558; --ink3:#A79C8C; --rule:#E1D9C9; --elis:#1F6B78; --err:#A63A26; --sel:#E7DFCB; --shadow:0 -1px 0 rgba(36,31,26,.06), 0 -18px 40px rgba(36,31,26,.07); }
+  [data-t="escuro"] { --paper:#141210; --surface:#1C1916; --ink:#EDE6D9; --ink2:#9E9484; --ink3:#6B6355; --rule:#2E2924; --elis:#79B8C2; --err:#DE8B72; --sel:#2B2419; --shadow:0 -1px 0 rgba(0,0,0,.5), 0 -18px 40px rgba(0,0,0,.35); }
+  [data-m] .sc-host { flex:1; min-height:0; display:flex; flex-direction:column; }
+  [data-m="mobile"] [data-hide-mobile] { display:none; }
+  [data-m="mobile"] [data-badge] { white-space:nowrap; font-size:10px; }
+  [data-m="mobile"] { --poem:20px; --colw:100%; --pad:20px; --top:28px; }
+</style>
+</helmet>
+<div data-t="{{ theme }}" style="--poem:27px; --colw:600px; --pad:40px; --top:84px; min-height:100vh; background:var(--paper); color:var(--ink); font-family:'IBM Plex Sans',system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; padding:28px 16px 40px">
+
+  <div data-m="{{ dev }}" style="width:100%; max-width:960px; background:var(--paper); display:flex; flex-direction:column; border-radius:2px">
+
+    <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex; justify-content:center">
+        <div style="width:390px; height:788px; flex:none; border:1px solid var(--rule); border-radius:30px; overflow:hidden; display:flex; flex-direction:column; background:var(--paper)">
+          <dc-import name="EditorShell" data="{{ shell }}" style="flex:1; min-height:0; display:flex; flex-direction:column" hint-size="390px,100%"></dc-import>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isDesktop }}" hint-placeholder-val="{{ true }}">
+      <div style="height:min(780px, calc(100vh - 140px)); min-height:420px; display:flex; flex-direction:column; overflow:hidden">
+        <dc-import name="EditorShell" data="{{ shell }}" style="flex:1; min-height:0; display:flex; flex-direction:column" hint-size="100%,100%"></dc-import>
+      </div>
+    </sc-if>
+
+  </div>
+
+  <div style="display:flex; flex-direction:column; gap:8px; align-items:center; margin-top:32px">
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink3); padding-left:4px">mockup</div>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; background:var(--surface); border:1px solid var(--rule); border-radius:999px; padding:6px">
+      <sc-for list="{{ screens }}" as="s" hint-placeholder-count="5">
+        <sc-if value="{{ s.on }}" hint-placeholder-val="{{ false }}">
+          <div onClick="{{ s.go }}" style="font-size:11.5px; padding:6px 12px; border-radius:999px; background:var(--ink); color:var(--paper); cursor:pointer">{{ s.label }}</div>
+        </sc-if>
+        <sc-if value="{{ s.off }}" hint-placeholder-val="{{ true }}">
+          <div onClick="{{ s.go }}" style="font-size:11.5px; padding:6px 12px; border-radius:999px; color:var(--ink2); cursor:pointer" style-hover="background:var(--sel); color:var(--ink)">{{ s.label }}</div>
+        </sc-if>
+      </sc-for>
+      <div style="width:1px; height:18px; background:var(--rule); margin:0 2px"></div>
+      <div onClick="{{ toggleDev }}" style="font-size:11.5px; padding:6px 12px; border-radius:999px; color:var(--ink2); cursor:pointer" style-hover="background:var(--sel); color:var(--ink)">{{ devLabel }}</div>
+      <div onClick="{{ toggleTheme }}" style="font-size:11.5px; padding:6px 12px; border-radius:999px; color:var(--ink2); cursor:pointer" style-hover="background:var(--sel); color:var(--ink)">{{ themeLabel }}</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;tema&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;claro&quot;,&quot;escuro&quot;],&quot;default&quot;:&quot;claro&quot;,&quot;tsType&quot;:&quot;'claro'|'escuro'&quot;,&quot;section&quot;:&quot;Aparência&quot;},&quot;dispositivo&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;desktop&quot;,&quot;mobile&quot;],&quot;default&quot;:&quot;desktop&quot;,&quot;tsType&quot;:&quot;'desktop'|'mobile'&quot;,&quot;section&quot;:&quot;Aparência&quot;},&quot;regua&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;sempre&quot;,&quot;foco&quot;,&quot;oculta&quot;],&quot;default&quot;:&quot;sempre&quot;,&quot;tsType&quot;:&quot;'sempre'|'foco'|'oculta'&quot;,&quot;section&quot;:&quot;Comportamento&quot;},&quot;contagem&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Comportamento&quot;}}">
+const REQ = [6, 10];
+
+function syl(spec) {
+  return spec.split("|").map((raw, i) => {
+    const ton = raw.includes("*"), el = raw.includes("^"), ex = raw.includes("+");
+    const pos = i + 1;
+    return { text: raw.replace(/[*^+]/g, ""), ton, el, ex, pos };
+  });
+}
+
+function segs(spec, tieHandler, tieState) {
+  const parts = spec.split("|");
+  const out = [];
+  parts.forEach((t, i) => {
+    out.push({ isText: true, text: t });
+    if (i < parts.length - 1) {
+      const st = (tieState && tieState[i]) || {};
+      out.push({
+        isTie: !st.sel && !st.lock, isTieSel: !!st.sel, isTieLock: !!st.lock && !st.sel,
+        onTie: () => tieHandler && tieHandler(i)
+      });
+    }
+  });
+  return out;
+}
+
+function buildLine(o, regua, tieHandler) {
+  const s = syl(o.syl);
+  let last = 0;
+  s.forEach(x => { if (x.ton) last = x.pos; });
+  const count = last;
+  const badReq = REQ.filter(p => p <= count && !(s[p - 1] && s[p - 1].ton));
+  const marked = s.map(x => {
+    const req = REQ.includes(x.pos) && x.pos <= count;
+    return {
+      isTon: x.ton && !x.el, isAto: !x.ton && !x.el && !x.ex,
+      isTonEl: x.ton && x.el, isAtoEl: !x.ton && x.el && !x.ex, isExtra: x.ex,
+      req: req && x.ton, bad: req && !x.ton
+    };
+  });
+  const bad = !!o.diag;
+  return {
+    key: o.key, segs: segs(o.text, tieHandler, o.ties), syl: marked,
+    count: o.partial ? count : count, rhyme: o.rhyme || "",
+    countBad: bad, countOk: !bad,
+    hasDiag: bad, diag: o.diag || "", diagHint: o.diagHint || "",
+    hasSoft: !!o.soft, soft: o.soft || "",
+    showCaret: !!o.caret, popover: !!o.popover,
+    showRegua: regua === "sempre" || (regua === "foco" && !!o.caret) || (regua === "foco" && bad),
+    badReq
+  };
+}
+
+const V1 = { key: "v1", text: "A tarde desce lenta sobre|o mar", syl: "A|tar*|de|des*|ce|len*|ta|so|breo^|mar*", rhyme: "A" };
+const V2 = { key: "v2", text: "e|o vento|esquece|o nome que trazia", syl: "eo^|ven*|toes^|que*|ceo^|no*|me|que|tra|zi*|a+", rhyme: "B" };
+const V3 = { key: "v3", text: "a pedra sabe|o pouco que sabia", syl: "a|pe*|dra|sa*|beo^|pou*|co|que|sa|bi*|a+", rhyme: "B" };
+const V4 = { key: "v4", text: "e nada mais se move no lugar", syl: "e|na*|da|mais*|se|mo*|ve|no|lu|gar*", rhyme: "A" };
+
+const V2ERR = {
+  key: "v2", text: "e|o vento|esquece|o nome que|ele trazia",
+  syl: "eo^|ven*|toes^|que*|ceo^|no*|me|quee^|le|tra|zi*|a+", rhyme: "B",
+  diag: "sobra 1 sílaba", diagHint: "última tônica na 11ª"
+};
+const V3ERR = {
+  key: "v3", text: "a noite cai devagar sobre|o rio",
+  syl: "a|noi*|te|cai*|de|va|gar*|so|breo^|ri*|o+", rhyme: "B",
+  diag: "tônica na 7ª, esperada na 6ª", diagHint: "10 sílabas, ritmo fora do heroico"
+};
+const V4PART = {
+  key: "v4", text: "e nada mais se move no", syl: "e|na*|da|mais*|se|mo*|ve|no", rhyme: "A",
+  caret: true, partial: true, soft: "faltam 2 sílabas · tônica na 10ª · rima em -ar"
+};
+
+const CAMPOS = [
+  { campo: "lugar", words: ["lugar", "pomar", "altar", "pilar"] },
+  { campo: "gesto", words: ["olhar", "cantar", "calar", "sonhar"] },
+  { campo: "movimento", words: ["andar", "voar", "girar", "vagar"] },
+  { campo: "luz", words: ["luar", "brilhar", "queimar"] }
+];
+
+const SCREENS = [
+  ["repouso", "Repouso"], ["erro", "Erro"], ["sugestoes", "Sugestões"],
+  ["forma", "Forma"], ["trava", "Trava"]
+];
+
+class Component extends DCLogic {
+  state = {
+    screen: "repouso", theme: null, dev: null,
+    metro: 10, ton: [6, 10], rima: "ABBA", estrofe: "Quarteto",
+    tieOpen: null, lockChoice: "elidir", locked: false
+  };
+
+  set(k, v) { this.setState({ [k]: v }); }
+
+  renderVals() {
+    const theme = this.state.theme || this.props.tema || "claro";
+    const dev = this.state.dev || this.props.dispositivo || "desktop";
+    const regua = this.props.regua || "sempre";
+    const contagem = this.props.contagem !== false;
+    const sc = this.state.screen;
+
+    const openTie = (lineKey) => (i) => {
+      this.setState({ screen: "trava", tieOpen: lineKey + ":" + i });
+    };
+
+    const mk = (o) => buildLine(o, regua, openTie(o.key));
+
+    let lines;
+    if (sc === "erro") lines = [mk(V1), mk(V2ERR), mk(V3ERR), mk(V4)];
+    else if (sc === "sugestoes") lines = [mk(V1), mk(V2), mk(V3), mk(V4PART)];
+    else if (sc === "trava") {
+      const v1 = Object.assign({}, V1, { ties: { 0: { sel: true } }, popover: dev !== "mobile" });
+      lines = [mk(v1), mk(V2), mk(V3), mk(V4)];
+    } else lines = [mk(V1), mk(V2), mk(V3), mk(V4)];
+
+    const posList = [];
+    for (let p = 1; p <= this.state.metro; p++) {
+      posList.push({
+        n: p, on: this.state.ton.includes(p), off: !this.state.ton.includes(p),
+        go: () => this.setState(s => ({
+          ton: s.ton.includes(p) ? s.ton.filter(x => x !== p) : s.ton.concat([p]).sort((a, b) => a - b)
+        }))
+      });
+    }
+
+    const opt = (list, cur, key) => list.map(v => ({
+      label: v, on: cur === v, off: cur !== v, go: () => this.set(key, v)
+    }));
+
+    const metroOpts = [
+      ["Redondilha menor", 5], ["Redondilha maior", 7], ["Decassílabo", 10],
+      ["Alexandrino", 12], ["Verso livre", 0]
+    ].map(([label, n]) => ({
+      label, n, on: this.state.metro === n, off: this.state.metro !== n,
+      go: () => this.setState({ metro: n, ton: n === 10 ? [6, 10] : n === 7 ? [3, 7] : n === 12 ? [6, 12] : n === 5 ? [2, 5] : [] })
+    }));
+
+    const presets = [
+      ["heroico", [6, 10]], ["sáfico", [4, 8, 10]], ["martelo", [3, 6, 10]]
+    ].map(([label, arr]) => ({
+      label, on: this.state.ton.join() === arr.join(), off: this.state.ton.join() !== arr.join(),
+      go: () => this.setState({ metro: 10, ton: arr })
+    }));
+
+    const lockOpts = [
+      { id: "elidir", label: "Elidir", scan: "so‿breo‿mar", res: "10 sílabas · dentro da forma", sug: true },
+      { id: "hiato", label: "Manter hiato", scan: "so-bre-o-mar", res: "11 sílabas · sobra 1", sug: false }
+    ].map(o => Object.assign({}, o, {
+      on: this.state.lockChoice === o.id, off: this.state.lockChoice !== o.id,
+      notSug: !o.sug, go: () => this.set("lockChoice", o.id)
+    }));
+
+    const shell = {
+      screen: sc, lines, contagem, mobile: dev === "mobile",
+      isRepouso: sc === "repouso" || sc === "trava", isErro: sc === "erro",
+      isSug: sc === "sugestoes", isForma: sc === "forma", isTrava: sc === "trava",
+      notForma: sc !== "forma",
+      campos: CAMPOS, posList, metroOpts, presets, lockOpts,
+      locked: this.state.locked, unlocked: !this.state.locked,
+      toggleLock: () => this.setState(s => ({ locked: !s.locked })),
+      closePop: () => this.setState({ screen: "repouso", tieOpen: null }),
+      closeDrawer: () => this.set("screen", "repouso"),
+      openForma: () => this.set("screen", "forma"),
+      startWriting: () => this.set("screen", "repouso"),
+      rima: this.state.rima,
+      rimaOpts: opt(["ABBA", "ABAB", "AABB", "Branco"], this.state.rima, "rima"),
+      estrofeOpts: opt(["Dístico", "Terceto", "Quarteto", "Soneto"], this.state.estrofe, "estrofe"),
+      formaLabel: (this.state.metro === 0 ? "verso livre" : this.state.metro + " sílabas")
+        + (this.state.ton.length ? " · tônicas " + this.state.ton.join("·") : "")
+        + " · " + this.state.rima.toLowerCase(),
+      errCount: sc === "erro" ? 2 : 0, hasErr: sc === "erro"
+    };
+
+    return {
+      theme, dev, shell,
+      isMobile: dev === "mobile", isDesktop: dev !== "mobile",
+      devLabel: dev === "mobile" ? "Mobile" : "Desktop",
+      themeLabel: theme === "escuro" ? "Escuro" : "Claro",
+      toggleDev: () => this.setState({ dev: dev === "mobile" ? "desktop" : "mobile" }),
+      toggleTheme: () => this.setState({ theme: theme === "escuro" ? "claro" : "escuro" }),
+      screens: SCREENS.map(([id, label]) => ({
+        label, on: sc === id, off: sc !== id,
+        go: () => this.setState({ screen: id, tieOpen: null })
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+/* Paleta e tipografia vindas de design/EditorShell.dc.html, sem alteração. */
+
+:root {
+  --poem: 27px;
+  --poem-font: Spectral, Georgia, serif;
+  --colw: 600px;
+  --pad: 40px;
+  --top: 84px;
+}
+
+[data-t='claro'] {
+  --paper: #f4efe5;
+  --surface: #fbf8f1;
+  --ink: #241f1a;
+  --ink2: #6e6558;
+  --ink3: #a79c8c;
+  --rule: #e1d9c9;
+  --elis: #1f6b78;
+  --err: #a63a26;
+  --sel: #e7dfcb;
+}
+
+[data-t='escuro'] {
+  --paper: #141210;
+  --surface: #1c1916;
+  --ink: #ede6d9;
+  --ink2: #9e9484;
+  --ink3: #6b6355;
+  --rule: #2e2924;
+  --elis: #79b8c2;
+  --err: #de8b72;
+  --sel: #2b2419;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+@media (max-width: 720px) {
+  :root {
+    --poem: 20px;
+    --colw: 100%;
+    --pad: 20px;
+    --top: 28px;
+  }
+}

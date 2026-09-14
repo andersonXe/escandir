@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["svelte", "node"],
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "paths": {
+      "@escandir/engine": ["../../packages/engine/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
+}
