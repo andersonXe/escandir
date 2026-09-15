@@ -3,6 +3,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      A chave do autor fica em claro no IndexedDB desta origem — é o contrato
+      BYOK, e não há como ser outro sem servidor. Por isso mesmo a origem tranca
+      o que dá: script só daqui, nada de plugin, nada de <base> reescrevendo
+      caminho, nenhum formulário com destino.
+
+      `connect-src` fica aberto de propósito: o endereço da API é editável, e é
+      isso que faz dezenas de provedores compatíveis funcionarem sem código
+      novo. O que a política impede é script de terceiro entrar — que é o
+      caminho por onde a chave sairia.
+
+      Vai em meta tag porque o GitHub Pages não deixa pôr cabeçalho. Sai o
+      `frame-ancestors`, que só vale em cabeçalho e é ignorado aqui.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+               font-src 'self' https://fonts.gstatic.com;
+               img-src 'self' data:;
+               connect-src *;
+               object-src 'none';
+               base-uri 'none';
+               form-action 'none'"
+    />
     <title>métrica</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

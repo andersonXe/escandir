@@ -67,6 +67,21 @@ certo e responde rápido. Modelo de raciocínio gasta o orçamento de tokens
 pensando antes de escrever, e o laço de ferramenta multiplica isso — ficou
 inutilizável na medição. Preferir modelo rápido.
 
+Isso é regra de código, não conselho: o **primeiro** de `fallbackModels` é o que
+a tela adota ao trocar de provedor, então ele é o padrão de fato. Durante um
+tempo o padrão foi o modelo de raciocínio mais caro de cada provedor — o oposto
+do que este parágrafo manda, e cinco vezes mais caro por proposta. Ao mexer
+nessa lista, o rápido vem primeiro.
+
+**A conta é visível.** Quem paga é o autor, e o laço reenvia a conversa inteira
+a cada rodada: uma proposta chega a quase trinta mil fichas de entrada quando a
+segunda tentativa entra. O painel mostra o consumo somado, subindo durante a
+espera. Em token, não em dinheiro — preço muda por modelo, por provedor e por
+mês, e o campo de modelo é texto livre justamente para não precisar de catálogo.
+
+**Desistir cancela de verdade.** Fechar o painel aborta a requisição. Antes só
+escondia a proposta: a chamada seguia até o fim e seguia sendo cobrada.
+
 **A tarefa é declarada, não inferida.** Havia um bug instrutivo: a tarefa saía
 da presença de texto na linha — se havia texto, era "completar". Então "propor
 variações" virava "complete este verso mantendo o começo", e o modelo colava
@@ -86,11 +101,13 @@ meio do poema e pede para atendê-lo.
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 25 testes no app cobrem o laço de
-proposta e as ações contextuais, sem precisar de chave.
+implementados, BYOK com chave em IndexedDB. 86 testes no app cobrem o laço de
+proposta, as ações contextuais, os limites da importação, a validação do
+endereço e a conta de tokens — sem precisar de chave.
 
-Camadas 2, 3 e 4 prontas em `packages/engine`; 269 testes contra corpus
-escandido à mão. Camadas 1 (léxico pré-computado) e 5 (sugestão) não existem.
+Camadas 2, 3 e 4 prontas em `packages/engine`; 289 testes, entre o corpus
+escandido à mão e as invariantes da busca. Camadas 1 (léxico pré-computado) e 5
+(sugestão) não existem.
 
 `apps/editor` implementa as telas Repouso, Erro e Forma do desenho, em
 Svelte 5 + Vite, com escansão ao vivo a cada tecla, mais a tela de ajustes da
@@ -99,7 +116,25 @@ IA. Sugestões locais (camada 5) e a tela Trava não existem.
 O desenho de referência está em `design/`, exportado do canvas do Claude
 Design. É a fonte da paleta, da tipografia e do comportamento das telas.
 
-Orçamento: escansão de verso em 0,13ms no pior caso medido; o teto é 16ms.
+Orçamento: o teto é 16ms por tecla. Verso normal escande em 0,03ms; a linha
+patológica — prosa inteira colada numa linha só, 26 junções — custa 13ms.
+
+O "0,13ms no pior caso" que esta linha dizia antes media o verso corrente e o
+chamava de pior caso. O pior caso real era 300ms: a busca enumerava 2^k leituras
+e **materializava** todas para descartar todas menos seis. Hoje a busca tem duas
+fases — pontua com aritmética de inteiros, monta só as que devolve —, o que deu
+entre 15× e 22× nas linhas densas. No editor, uma linha de treze junções saiu de
+96ms por tecla para 12ms.
+
+Equivalência verificada por diferencial contra a implementação anterior: 34.535
+comparações — com e sem travas do autor, com custos inteiros e fracionários —
+sem uma única divergência, em toda leitura devolvida e não só na melhor.
+
+A busca continua exponencial no número de junções livres, com o teto de 14 como
+rede. O que a torna aceitável é a constante, não a ordem: se algum dia o teto
+precisar subir, aí sim é preciso a busca sobre o DAG que a seção Arquitetura
+descreve — programação dinâmica sobre `(unidade, sílabas)`, que muda a
+semântica do ranque e é decisão de produto, não de implementação.
 
 **Lacuna conhecida da camada 2.** Prefixo + radical iniciado por vogal
 ("re-u-nir", "pro-i-bir", "co-in-ci-dir") é hiato que a grafia não registra —
@@ -152,7 +187,9 @@ Seis camadas. As quatro primeiras são determinísticas e rodam no cliente.
 2. **Palavra → sílabas + tônica** — regras, com o léxico resolvendo exceções.
    Memoizado.
 3. **Verso → grafo de junções** — todas as elisões e hiatos possíveis, com
-   custo. Busca com alvo sobre o DAG.
+   custo. Busca com alvo sobre o grafo, em duas fases: pontua toda leitura com
+   aritmética de inteiros, monta as sílabas só das que devolve. (A busca em si
+   ainda enumera; ver o orçamento no Estado atual.)
 4. **Ajuste ao esquema** — leituras válidas + diagnóstico acionável ("sobra 1
    sílaba", "tônica na 8ª, esperada na 6ª").
 5. **Sugestão local** — índice invertido gera candidatos metricamente válidos
@@ -179,6 +216,22 @@ despesa recorrente.
   usuário, guardada no browser, chamada direta do navegador
 - Frontend estático em CDN. Poemas em IndexedDB, com export/import de arquivo
 - Local-first, zero lock-in: o site deve poder mudar de host numa tarde
+
+**A chave é o que a origem tem de proteger.** Ela fica em claro no IndexedDB —
+não há como ser outro sem servidor, e é o contrato BYOK. A contrapartida é que a
+origem tranca o resto: CSP em meta tag no `index.html` (o Pages não deixa pôr
+cabeçalho), com `script-src 'self'`, `object-src 'none'`, `base-uri 'none'`.
+`connect-src` fica aberto de propósito, porque o endereço da API é editável e é
+isso que faz dezenas de provedores compatíveis funcionarem sem código novo.
+
+Pelo mesmo motivo o projeto **não tem dependência de runtime**: todo pacote é de
+build. Cada dependência que rodasse no navegador seria alguém com acesso à chave
+do autor. Acrescentar uma é decisão de segurança, não de conveniência.
+
+O campo de endereço valida o esquema e pede confirmação quando muda com uma
+chave guardada: é o único ponto do app onde um erro de digitação manda a
+credencial de alguém para um estranho. `http://` só passa em `localhost`, porque
+modelo local é metade do motivo de o campo ser editável.
 
 **TypeScript puro no motor.** Sem dependência de runtime Python. O motor tem
 que rodar no browser.
@@ -218,8 +271,16 @@ reabertas por engano.
   O alinhamento saiu barato porque o editor já espelha o verso em DOM: cada
   sílaba é um `<span>`, e o navegador **já mediu** aquele texto ao dispor a
   linha. Ler `getClientRects()` do span custa uma medição de layout por verso
-  editado — não há canvas em lugar nenhum. Versos que quebram em duas linhas
-  saem certos de graça, porque cada span sabe em que linha caiu.
+  editado — não há canvas em lugar nenhum.
+
+  O verso que quebra em duas linhas **não** saía de graça, ao contrário do que
+  esta seção dizia. O `x` saía: cada span sabe em que linha caiu. O `y` não:
+  com a entrelinha de 1,62 sobram 1,7px entre uma linha visual e a seguinte, e
+  o ponto ocupa 14 — a régua da primeira linha era desenhada por cima das
+  letras da segunda, treze pontos de dezessete num alexandrino no corpo padrão.
+  Agora o verso que quebra ganha entrelinha de `calc(1.62em + 14px)`, e só ele:
+  verso que cabe numa linha continua com a tipografia de antes, porque como o
+  poema se apresenta é escolha de quem escreve.
 - **Palavra de classe fechada não desenha tempo forte.** "sobre", "entre",
   "quando" são `weak`. Se uma posição obrigatória aceita átona é decisão
   separada, da camada 4 — o peso prosódico governa a régua, não o diagnóstico.
@@ -347,6 +408,13 @@ Implementado em `apps/editor/src/lib/document.ts`: formato próprio `.poema`,
 JSON por dentro. Guarda título, forma declarada, esquema de rima, e por verso
 o texto mais as travas. É por isso que não é `.txt` — um arquivo de texto
 guarda as letras e perde exatamente o que distingue este documento.
+
+Importar é a única porta por onde entra dado que o editor não produziu, e por
+isso `fromRaw` valida campo a campo em vez de espalhar o objeto. Os limites da
+forma são cobrados **aqui também**, e não só na tela: a tela limita sílabas a 20
+e versos a 200, um arquivo não passa por ela, e `syllables: 1000000` atravessava
+a validação inteira — era número, era finito — para travar a aba assim que a
+tela de Forma tentasse desenhar uma casa de régua por sílaba.
 
 O campo `locks` já existe e já persiste, embora a UI ainda não o produza: o
 formato precisa estar pronto antes da tela Trava, ou os arquivos gravados hoje

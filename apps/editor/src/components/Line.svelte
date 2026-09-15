@@ -3,6 +3,7 @@
   import Propostas from './Propostas.svelte';
   import type { Action } from '../lib/ai/action.js';
   import type { Candidate } from '../lib/ai/propose.js';
+  import type { Usage } from '../lib/ai/types.js';
   import type { LineKind } from '../lib/document.js';
   import { hintPhrase, isQuiet, mainPhrase } from '../lib/phrase.js';
   import type { LineScan } from '../lib/scan.js';
@@ -46,6 +47,7 @@
       readonly raw: string | null;
       readonly sent: string | null;
       readonly stage: string;
+      readonly usage: Usage | null;
     } | null;
     onaction: (index: number, action: Action) => void;
     onaccept: (candidate: Candidate) => void;
@@ -84,6 +86,20 @@
   let stack: HTMLDivElement | undefined = $state();
   let marks = $state<Mark[]>([]);
   let active = $state(false);
+  /**
+   * O verso ocupa mais de uma linha visual.
+   *
+   * Importa porque a régua precisa de uma faixa livre embaixo de **cada** linha
+   * visual, e não só da última. Com a entrelinha normal sobra 1,7px entre uma
+   * linha e a seguinte; o ponto ocupa 14. O resultado era a régua desenhada por
+   * cima das letras da linha de baixo — treze pontos de dezessete num
+   * alexandrino comum, no tamanho de corpo padrão.
+   *
+   * Só o verso que quebra ganha a entrelinha maior. Verso que cabe numa linha é
+   * a esmagadora maioria e continua exatamente com a tipografia de antes: não é
+   * o sistema que decide como o poema se apresenta.
+   */
+  let wrapped = $state(false);
 
   const isVerse = $derived(kind === 'verse');
 
@@ -142,11 +158,20 @@
     const reading = scan.reading;
     if (host === undefined || !isVerse || reading === null || assessment === null) {
       if (marks.length > 0) marks = [];
+      if (wrapped) wrapped = false;
       return;
     }
 
     const origin = host.getBoundingClientRect();
     const next: Mark[] = [];
+    /**
+     * Quantas linhas visuais o verso ocupa, pelas bases distintas das caixas.
+     *
+     * A entrelinha não muda onde o texto quebra — quebra é largura —, então
+     * ligar `wrapped` a partir desta contagem converge numa passada: o
+     * `ResizeObserver` remede quando a altura muda, e a contagem é a mesma.
+     */
+    const bases = new Set<number>();
     for (const node of host.querySelectorAll<HTMLElement>('[data-syl]')) {
       const position = Number(node.dataset.syl);
       const syllable = reading.syllables[position];
@@ -155,6 +180,7 @@
       // contém o início da sílaba, e é sob ela que o ponto deve cair.
       const box = node.getClientRects()[0];
       if (box === undefined) continue;
+      bases.add(Math.round(box.bottom));
       next.push({
         x: box.left - origin.left + box.width / 2,
         y: Math.round(box.bottom - origin.top) + 6,
@@ -165,6 +191,7 @@
       });
     }
     marks = next;
+    wrapped = bases.size > 1;
   }
 
   $effect(() => {
@@ -246,13 +273,14 @@
   onmouseleave={() => (active = false)}
   role="presentation"
 >
-  <div class="stack" bind:this={stack}>
+  <div class="stack" class:wrapped bind:this={stack}>
     <textarea
       bind:this={field}
       class="field text"
       rows="1"
       spellcheck="false"
       autocapitalize="off"
+      data-verso="sim"
       aria-label={`linha ${index + 1}`}
       value={text}
       oninput={(event) => onchange(index, event.currentTarget.value)}
@@ -312,6 +340,7 @@
       raw={proposal.raw}
       sent={proposal.sent}
       stage={proposal.stage}
+      usage={proposal.usage}
       {onaccept}
       {ondismiss}
       onretry={() => onaction(index, proposal.action)}
@@ -363,6 +392,26 @@
   .stack {
     position: relative;
     padding-bottom: 20px;
+  }
+
+  /*
+   * Verso que quebra: a faixa da régua passa a caber entre as linhas visuais.
+   *
+   * `calc(1.62em + 14px)` mantém a proporção de antes e acrescenta exatamente o
+   * que o ponto ocupa (6px de folga + 8px de diâmetro). Como é comprimento e
+   * não número, cada regra que muda o corpo tem de trazer a sua — por isso isto
+   * vale só para o verso, que é o único que desenha régua.
+   *
+   * O campo e o espelho recebem a mesma entrelinha, ou o cursor descola das
+   * letras. Os dois usam `.text`, então basta mirar nele.
+   */
+  .stack.wrapped .text {
+    line-height: calc(1.62em + 14px);
+  }
+
+  /* A última linha já ganhou a faixa pela entrelinha; o resto seria buraco. */
+  .stack.wrapped {
+    padding-bottom: 6px;
   }
 
   .line.heading .stack,

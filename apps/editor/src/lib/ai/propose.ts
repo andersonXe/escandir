@@ -27,7 +27,7 @@ import type { Lexicon } from '@escandir/lexicon';
 import { buildSystem, buildUser, SEPARATOR, type ProposalContext } from './prompt.js';
 import { RIMAS, rimasTool, runRimas } from './rimas.js';
 import { runTool, toolsFor, type Frame } from './tools.js';
-import type { CompletionRequest, CompletionResult, Message } from './types.js';
+import { addUsage, NO_USAGE, type CompletionRequest, type CompletionResult, type Message, type Usage } from './types.js';
 
 const analyzer = createAnalyzer(ptBR);
 
@@ -64,6 +64,14 @@ export interface ProposeOptions {
   readonly onSent?: (sent: string) => void;
   /** Progresso, para a espera não parecer travamento. */
   readonly onProgress?: (etapa: string) => void;
+  /**
+   * Consumo somado de todas as idas ao provedor desta proposta.
+   *
+   * Vai somando: chamado a cada rodada, e o valor é o total até ali. Assim a
+   * tela pode mostrar a conta subindo durante a espera, que é o momento em que
+   * ela informa alguma coisa — depois de pronta, já foi gasto.
+   */
+  readonly onUsage?: (total: Usage) => void;
   /** Dicionário de rimas. Quando presente, vira o segundo tool do modelo. */
   readonly lexicon?: Lexicon;
 }
@@ -214,6 +222,10 @@ export async function propose(
   const useTools = options.tools !== false;
   const maxRounds = options.maxToolRounds ?? MAX_TOOL_ROUNDS;
 
+  // Atravessa as duas tentativas: o que interessa ao autor é o que a proposta
+  // custou por inteiro, não o que custou cada metade dela.
+  let gasto: Usage = NO_USAGE;
+
   /**
    * Uma rodada de conversa. Enquanto o modelo pedir a régua, mede e devolve;
    * quando ele parar de pedir, é porque respondeu.
@@ -252,6 +264,11 @@ export async function propose(
         ...(tools === undefined || round === maxRounds ? {} : { tools }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       });
+
+      if (result.usage !== undefined) {
+        gasto = addUsage(gasto, result.usage);
+        options.onUsage?.(gasto);
+      }
 
       if (result.toolCalls.length === 0) {
         options.onRaw?.(result.text);

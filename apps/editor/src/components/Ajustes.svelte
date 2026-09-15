@@ -1,6 +1,6 @@
 <script lang="ts">
   import { PROVIDERS, providerById } from '../lib/ai/registry.js';
-  import type { ProviderConfig } from '../lib/ai/types.js';
+  import { endpointWarning, type ProviderConfig } from '../lib/ai/types.js';
 
   interface Props {
     config: ProviderConfig;
@@ -17,6 +17,42 @@
 
   const provider = $derived(providerById(config.providerId) ?? PROVIDERS[0]!);
   const sugestoes = $derived(modelos.length > 0 ? modelos : provider.fallbackModels);
+
+  /**
+   * O aviso sobre o endereço, quando há o que avisar.
+   *
+   * A prosa da tela já dizia "a chave vai para onde este campo apontar", e isso
+   * não bastava: ninguém lê o parágrafo depois de colar. O aviso aparece preso
+   * ao campo, no momento em que o endereço deixa de ser seguro.
+   */
+  const aviso = $derived(endpointWarning(config.baseUrl));
+
+  /**
+   * Endereço alterado com chave já guardada é o momento a confirmar.
+   *
+   * Não é paranoia: colar um endereço é o gesto que redireciona a credencial, e
+   * é o único ponto do app em que um erro de digitação manda a chave do autor
+   * para um estranho. Confirmar uma vez custa um clique.
+   */
+  let enderecoPendente = $state<string | null>(null);
+
+  function mudarEndereco(valor: string): void {
+    const mesmoDestino = valor.trim() === config.baseUrl.trim();
+    if (mesmoDestino) return;
+    // Sem chave não há o que vazar, e apagar o campo volta ao padrão do
+    // provedor — nos dois casos a confirmação seria cerimônia.
+    if (config.apiKey.trim() === '' || valor.trim() === '') {
+      onchange({ ...config, baseUrl: valor });
+      return;
+    }
+    enderecoPendente = valor;
+  }
+
+  function confirmarEndereco(): void {
+    if (enderecoPendente === null) return;
+    onchange({ ...config, baseUrl: enderecoPendente });
+    enderecoPendente = null;
+  }
 
   async function buscarModelos(): Promise<void> {
     if (provider.listModels === undefined || config.apiKey.trim() === '') return;
@@ -117,14 +153,35 @@
 
   <section>
     <div class="label">endereço</div>
+    <!-- `onchange`, não `oninput`: confirmar a cada tecla de um endereço sendo
+         digitado seria insuportável. O gesto a confirmar é o endereço pronto. -->
     <input
       class="campo largo"
+      class:atencao={aviso !== null}
       spellcheck="false"
       placeholder={provider.defaultBaseUrl}
       aria-label="endereço da API"
-      value={config.baseUrl}
-      oninput={(event) => onchange({ ...config, baseUrl: event.currentTarget.value })}
+      value={enderecoPendente ?? config.baseUrl}
+      onchange={(event) => mudarEndereco(event.currentTarget.value)}
     />
+
+    {#if enderecoPendente !== null}
+      <div class="confirmar">
+        <p>
+          A chave passa a ser enviada para <strong>{enderecoPendente}</strong>.
+          {#if endpointWarning(enderecoPendente) !== null}
+            <span class="perigo">{endpointWarning(enderecoPendente)}.</span>
+          {/if}
+        </p>
+        <div class="linha">
+          <button class="chip small on" onclick={confirmarEndereco}>mandar a chave para lá</button>
+          <button class="chip small" onclick={() => (enderecoPendente = null)}>cancelar</button>
+        </div>
+      </div>
+    {:else if aviso !== null}
+      <p class="erro">{aviso}</p>
+    {/if}
+
     <p class="nota">
       Vazio usa o padrão. Trocar aqui alcança qualquer serviço que fale o mesmo protocolo —
       compatíveis, roteadores, modelo rodando na sua máquina. <strong>A chave vai para onde este
@@ -246,6 +303,34 @@
 
   .campo:focus {
     border-color: var(--ink3);
+  }
+
+  .campo.atencao {
+    border-color: var(--err);
+  }
+
+  .confirmar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border-left: 2px solid var(--err);
+    background: var(--sel);
+    border-radius: 0 3px 3px 0;
+  }
+
+  .confirmar p {
+    font-size: 12px;
+    color: var(--ink2);
+    line-height: 1.6;
+    margin: 0;
+    max-width: 52ch;
+    /* Endereço longo não pode empurrar a coluna para fora da tela. */
+    overflow-wrap: anywhere;
+  }
+
+  .perigo {
+    color: var(--err);
   }
 
   .nota {

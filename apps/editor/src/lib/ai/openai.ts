@@ -10,6 +10,7 @@ import {
   baseOf,
   ProviderError,
   readError,
+  readUsage,
   type CompletionRequest,
   type CompletionResult,
   type Message,
@@ -82,7 +83,10 @@ export const openai: Provider = {
   name: 'OpenAI',
   defaultBaseUrl: 'https://api.openai.com/v1',
   keyUrl: 'https://platform.openai.com/api-keys',
-  fallbackModels: ['gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o'],
+  // Ver a nota no adaptador da Anthropic: o primeiro é o padrão de fato, e o
+  // padrão precisa ser um modelo sem raciocínio — é o mesmo motivo que fez
+  // nascer a mensagem de erro de teto estourado mais abaixo.
+  fallbackModels: ['gpt-5-mini', 'gpt-4.1', 'gpt-4o', 'gpt-5'],
   supportsTools: true,
 
   async complete(config: ProviderConfig, request: CompletionRequest): Promise<CompletionResult> {
@@ -127,6 +131,13 @@ export const openai: Provider = {
     if (!response.ok) await readError(response);
 
     const payload: unknown = await response.json();
+    // Aqui o cache é automático do lado do provedor — não há o que pedir, só o
+    // que ler. O número vem aninhado em `prompt_tokens_details`.
+    const usage = readUsage(payload, {
+      input: 'prompt_tokens',
+      output: 'completion_tokens',
+      cached: ['prompt_tokens_details.cached_tokens'],
+    });
     const choices = (payload as { choices?: unknown }).choices;
     const choice = Array.isArray(choices)
       ? (choices[0] as { message?: unknown; finish_reason?: unknown } | undefined)
@@ -151,7 +162,7 @@ export const openai: Provider = {
       );
     }
 
-    return { text, toolCalls };
+    return { text, toolCalls, usage };
   },
 
   async listModels(config: ProviderConfig, signal?: AbortSignal): Promise<string[]> {

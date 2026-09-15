@@ -30,7 +30,7 @@
   import type { ProposalContext, Task } from './lib/ai/prompt.js';
   import { propose, type Candidate } from './lib/ai/propose.js';
   import { providerById } from './lib/ai/registry.js';
-  import type { ProviderConfig } from './lib/ai/types.js';
+  import type { ProviderConfig, Usage } from './lib/ai/types.js';
   import { Lexicon } from '@escandir/lexicon';
 
   import { History } from './lib/history.js';
@@ -119,8 +119,35 @@
     readonly stage: string;
     /** Quantos versos esta proposta substitui ao ser aceita. */
     readonly replaces: number;
+    /** O que esta proposta consumiu, somando todas as idas ao provedor. */
+    readonly usage: Usage | null;
   }
   let proposal = $state<ProposalState | null>(null);
+
+  /**
+   * A chamada em curso, para poder desistir dela.
+   *
+   * Sem isto, fechar o painel só escondia a proposta: a requisição seguia até o
+   * fim e seguia sendo cobrada. Num laço de ferramenta são várias idas ao
+   * servidor, e o autor que mudou de ideia pagava as restantes sem ver nenhuma.
+   *
+   * A identidade do controlador é o que distingue uma resposta atual de uma
+   * atrasada — comparar o índice da linha não bastaria, porque pedir de novo no
+   * mesmo verso produz o mesmo índice.
+   */
+  let inFlight: AbortController | null = null;
+
+  /** Desiste do que está no ar. Seguro de chamar quando não há nada. */
+  function cancelProposal(): void {
+    inFlight?.abort();
+    inFlight = null;
+  }
+
+  /** Fecha o painel e desiste da chamada: recusar não deixa rastro nem conta. */
+  function dismissProposal(): void {
+    cancelProposal();
+    proposal = null;
+  }
 
   /**
    * Dicionário de rimas, carregado sob demanda. O manifesto é minúsculo e cada
@@ -256,7 +283,7 @@
       source: line.source ?? 'author',
     }));
     cursorLine = 0;
-    proposal = null;
+    dismissProposal();
     history.clear();
     void setLastOpened(doc.id);
   }
@@ -303,7 +330,10 @@
     return {
       lines: lines.map((line) => ({ text: line.text, kind: line.kind, source: line.source })),
       cursor: cursorLine,
-      caret: 0,
+      // A coluna de verdade, quando se sabe qual é. Zero fixo mandava o cursor
+      // para o começo do verso a cada desfazer, e quem desfaz quer continuar de
+      // onde estava, não recomeçar a linha.
+      caret: selection !== null && selection.index === cursorLine ? selection.start : 0,
     };
   }
 
@@ -604,7 +634,16 @@
       screen = 'ajustes';
       return;
     }
-    proposal = { index, action, loading: true, error: null, candidates: [], raw: null, sent: null, stage: 'escrevendo', replaces };
+
+    // Pedir de novo abandona o pedido anterior. Deixar os dois correndo pagaria
+    // por uma resposta que ninguém vai ver.
+    cancelProposal();
+    const controller = new AbortController();
+    inFlight = controller;
+    /** Esta chamada ainda é a que a tela espera? */
+    const atual = (): boolean => inFlight === controller;
+
+    proposal = { index, action, loading: true, error: null, candidates: [], raw: null, sent: null, stage: 'escrevendo', replaces, usage: null };
     try {
       const dicionario = await getLexicon();
       const candidates = await propose(
@@ -612,20 +651,30 @@
         contextFor(index, action),
         {
           tools: provider.supportsTools,
+          signal: controller.signal,
           ...(dicionario === null ? {} : { lexicon: dicionario }),
           onRaw: (raw) => (ultimaResposta = raw),
           onSent: (sent) => (ultimoPedido = sent),
           onProgress: (stage) => {
-            if (proposal?.index === index) proposal = { ...proposal, stage };
+            if (atual() && proposal !== null) proposal = { ...proposal, stage };
+          },
+          onUsage: (usage) => {
+            if (atual() && proposal !== null) proposal = { ...proposal, usage };
           },
         },
       );
-      if (proposal?.index === index) {
+      if (atual() && proposal !== null) {
+        inFlight = null;
         proposal = { ...proposal, loading: false, candidates, raw: ultimaResposta, sent: ultimoPedido };
       }
     } catch (error) {
+      // Desistência não é falha: quem cancelou já sabe o que aconteceu, e uma
+      // mensagem de erro por cima do próprio gesto só confunde.
+      if (!atual()) return;
+      inFlight = null;
+      if (controller.signal.aborted) return;
       const message = error instanceof Error ? error.message : 'falha ao pedir proposta';
-      if (proposal?.index === index) {
+      if (proposal !== null) {
         proposal = { ...proposal, loading: false, error: message, raw: ultimaResposta, sent: ultimoPedido };
       }
     }
@@ -649,7 +698,7 @@
     lineRange = null;
     const ultima = current.index + novas.length - 1;
     goTo(ultima, (lines[ultima]?.text ?? '').length);
-    proposal = null;
+    dismissProposal();
   }
 
   function guardarModelo(name: string): void {
@@ -690,7 +739,7 @@
     tema = '';
     temaAberto = false;
     lines = [{ text: '', kind: 'verse', source: 'author' }];
-    proposal = null;
+    dismissProposal();
     cursorLine = 0;
     goTo(0, 0);
     history.clear();
@@ -753,17 +802,25 @@
   /**
    * Atalhos no nível da janela.
    *
-   * Campos de uma linha — título, campos da Forma — ficam de fora: ali o
-   * desfazer do navegador é o certo, e sequestrá-lo só pioraria.
+   * Campos que não são verso — título, campos da Forma, o campo do tema —
+   * ficam de fora do desfazer: ali o do navegador é o certo, e sequestrá-lo só
+   * pioraria. O verso é a exceção, e é uma exceção necessária: Enter e
+   * Backspace nas bordas viram operações sobre a lista de linhas, que o campo
+   * não conhece, então o desfazer dele já está dessincronizado.
+   *
+   * Testar só por `HTMLInputElement` não bastava: o campo do tema é
+   * `<textarea>`, escapava da guarda, e Ctrl+Z ali revertia o poema em vez do
+   * tema — silenciosamente, num lugar onde o autor não estava olhando.
    */
   function onWindowKeydown(event: KeyboardEvent): void {
     const target = event.target;
-    const emInput = target instanceof HTMLInputElement;
+    const emVerso = target instanceof HTMLTextAreaElement && target.dataset['verso'] === 'sim';
+    const emCampo = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
     const mod = event.ctrlKey || event.metaKey;
 
     if (event.key === 'Escape' && proposal !== null) {
       event.preventDefault();
-      proposal = null;
+      dismissProposal();
       return;
     }
     if (event.key === 'Escape' && screen !== 'poema') {
@@ -790,7 +847,9 @@
       if (action !== null) void runAction(cursorLine, action);
       return;
     }
-    if (emInput) return;
+    // Desfazer do documento só vale dentro de um verso; em qualquer outro
+    // campo o do navegador é o que o autor espera.
+    if (emCampo && !emVerso) return;
     if (key === 'z' && !event.shiftKey) {
       event.preventDefault();
       undo();
@@ -907,7 +966,7 @@
               proposal={proposal?.index === index ? proposal : null}
               onaction={runAction}
               onaccept={acceptCandidate}
-              ondismiss={() => (proposal = null)}
+              ondismiss={dismissProposal}
             />
           {/each}
         </div>
@@ -994,6 +1053,12 @@
     gap: 16px;
     padding: 16px var(--pad);
     flex: none;
+    /*
+     * Numa tela estreita as três partes não cabem lado a lado, e sem quebrar
+     * elas empurravam a página 6px para fora — a contagem de versos ficava
+     * cortada e o corpo do documento rolava na horizontal.
+     */
+    flex-wrap: wrap;
   }
 
   .doc {

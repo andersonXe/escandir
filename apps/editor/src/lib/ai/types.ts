@@ -50,10 +50,61 @@ export interface CompletionRequest {
   readonly signal?: AbortSignal;
 }
 
+/**
+ * O que a chamada consumiu.
+ *
+ * Em BYOK quem paga é o autor, e até aqui ele não tinha como saber se uma
+ * proposta custou pouco ou muito — o laço de ferramenta reenvia a conversa
+ * inteira a cada rodada, e o número cresce sem aparecer em lugar nenhum.
+ *
+ * Conta token, não dinheiro. Preço muda por modelo, por provedor e por mês, e o
+ * campo de modelo é texto livre justamente para não precisar de catálogo: uma
+ * tabela de preços aqui envelheceria e passaria a mentir. Token é o que os dois
+ * provedores relatam e o que o autor pode converter na tabela de quem cobra.
+ */
+export interface Usage {
+  readonly input: number;
+  readonly output: number;
+  /** Parte da entrada que veio do cache do provedor, quando ele relata. */
+  readonly cached: number;
+}
+
+export const NO_USAGE: Usage = { input: 0, output: 0, cached: 0 };
+
+export function addUsage(a: Usage, b: Usage): Usage {
+  return { input: a.input + b.input, output: a.output + b.output, cached: a.cached + b.cached };
+}
+
+/** Lê o bloco `usage` de um corpo de resposta, sob os nomes de cada provedor. */
+export function readUsage(payload: unknown, campos: { input: string; output: string; cached: readonly string[] }): Usage {
+  const bloco = (payload as { usage?: unknown }).usage;
+  if (typeof bloco !== 'object' || bloco === null) return NO_USAGE;
+  const record = bloco as Record<string, unknown>;
+
+  const numero = (valor: unknown): number => (typeof valor === 'number' && Number.isFinite(valor) ? valor : 0);
+
+  let cached = 0;
+  for (const caminho of campos.cached) {
+    // Um provedor põe o número na raiz, o outro aninhado num objeto de
+    // detalhes; o caminho com ponto cobre os dois sem um ramo por provedor.
+    const partes = caminho.split('.');
+    let atual: unknown = record;
+    for (const parte of partes) {
+      if (typeof atual !== 'object' || atual === null) { atual = undefined; break; }
+      atual = (atual as Record<string, unknown>)[parte];
+    }
+    cached += numero(atual);
+  }
+
+  return { input: numero(record[campos.input]), output: numero(record[campos.output]), cached };
+}
+
 export interface CompletionResult {
   readonly text: string;
   /** Vazio quando o modelo respondeu de vez. */
   readonly toolCalls: readonly ToolCall[];
+  /** Ausente quando o provedor não relata consumo. */
+  readonly usage?: Usage;
 }
 
 export interface Provider {
@@ -88,6 +139,41 @@ export class ProviderError extends Error {
 export function baseOf(provider: Provider, config: ProviderConfig): string {
   const raw = config.baseUrl.trim() === '' ? provider.defaultBaseUrl : config.baseUrl.trim();
   return raw.replace(/\/+$/, '');
+}
+
+/**
+ * O endereço é seguro para receber a chave?
+ *
+ * `http://` manda a chave em claro pela rede. A exceção é a máquina do próprio
+ * autor — modelo local em `localhost` não tem certificado e não sai da máquina,
+ * e recusá-lo mataria metade do motivo de o campo ser editável.
+ *
+ * Devolve o motivo em texto, ou `null` quando está tudo bem. Quem decide o que
+ * fazer com isso é a tela: aqui não se bloqueia nada, só se diz o que é.
+ */
+export function endpointWarning(baseUrl: string): string | null {
+  const raw = baseUrl.trim();
+  if (raw === '') return null;
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return 'não parece um endereço válido';
+  }
+
+  const local =
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    url.hostname === '[::1]' ||
+    url.hostname.endsWith('.localhost');
+
+  if (url.protocol === 'https:') return null;
+  if (url.protocol === 'http:' && local) return null;
+  if (url.protocol === 'http:') {
+    return 'endereço sem https: a chave sairia em claro pela rede';
+  }
+  return `endereço em "${url.protocol}", que não serve para chamar uma API`;
 }
 
 /**

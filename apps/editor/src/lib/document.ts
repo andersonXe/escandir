@@ -98,6 +98,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Tetos da forma. Repetem o que a tela de Forma já impõe, porque um arquivo não
+ * passa por ela: sem isto, `syllables: 1000000` num `.poema` atravessa a
+ * validação inteira e trava a aba na primeira vez que a tela de Forma tenta
+ * desenhar uma casa de régua por sílaba.
+ *
+ * Não vivem em `lib/forma.ts` para não fazer o modelo de documento depender da
+ * UI; são o mesmo número, e é de propósito que sejam.
+ */
+const MAX_SYLLABLES = 20;
+const MAX_VERSES = 200;
+
+function clampInt(value: number, low: number, high: number): number {
+  if (!Number.isFinite(value)) return low;
+  return Math.min(high, Math.max(low, Math.trunc(value)));
+}
+
 function readSpec(value: unknown): MetricSpec {
   if (!isRecord(value)) throw new Error('forma ausente');
   const syllables = value['syllables'];
@@ -105,10 +122,16 @@ function readSpec(value: unknown): MetricSpec {
   if (typeof syllables !== 'number' || !Number.isFinite(syllables)) {
     throw new Error('forma sem número de sílabas');
   }
+  const count = clampInt(syllables, 0, MAX_SYLLABLES);
   const stresses = Array.isArray(required)
-    ? required.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+    ? required
+        .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+        .map((n) => Math.trunc(n))
+        // Tônica exigida fora do verso não é exigência, é lixo: a mesma regra
+        // que `withSyllables` aplica quando o autor baixa o número na tela.
+        .filter((n) => n >= 1 && n <= count)
     : [];
-  return { syllables, requiredStresses: stresses };
+  return { syllables: count, requiredStresses: stresses };
 }
 
 function readLocks(value: unknown): Readonly<Record<string, boolean>> | undefined {
@@ -127,7 +150,9 @@ function readLocks(value: unknown): Readonly<Record<string, boolean>> | undefine
 function readRhyme(value: unknown): string {
   if (typeof value !== 'string') return '';
   if (value.toLowerCase() === 'branco') return '';
-  return value.toUpperCase().replace(/[^A-Z]/g, '');
+  // O mesmo corte de `normalizeRhyme`: o esquema cicla, então mais letras que
+  // versos possíveis não acrescenta nada e só dá o que carregar.
+  return value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, MAX_VERSES);
 }
 
 function readSource(value: unknown): 'author' | 'ai' {
@@ -200,9 +225,7 @@ export function fromRaw(raw: unknown): PoemDocument {
     theme: typeof raw['theme'] === 'string' ? raw['theme'] : '',
     spec: readSpec(raw['spec']),
     rhyme: readRhyme(raw['rhyme']),
-    verses: typeof raw['verses'] === 'number' && Number.isFinite(raw['verses'])
-      ? Math.max(0, Math.trunc(raw['verses']))
-      : 0,
+    verses: typeof raw['verses'] === 'number' ? clampInt(raw['verses'], 0, MAX_VERSES) : 0,
     style: readStyle(raw['style']),
     lines: lines.length > 0 ? lines : [{ text: '', kind: 'verse' }],
     updatedAt: typeof raw['updatedAt'] === 'string' ? raw['updatedAt'] : new Date().toISOString(),

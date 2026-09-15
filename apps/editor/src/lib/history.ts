@@ -47,7 +47,14 @@ export class History<T> {
   push(state: HistoryState<T>, force = false): void {
     const now = Date.now();
     if (!force && now - this.#lastPush < COALESCE_MS && this.#past.length > 0) {
-      this.#lastPush = now;
+      /*
+       * A janela fica ancorada no último registro de verdade, não nesta tecla.
+       *
+       * Adiantar o relógio aqui fazia a janela deslizar: quem digitasse sem
+       * parar mais de 700ms nunca criava um segundo ponto, e um Ctrl+Z apagava
+       * a sessão inteira de uma vez. Ancorada, a digitação vira um ponto a cada
+       * 700ms, que é o que se espera de desfazer num editor.
+       */
       return;
     }
     this.#past.push(state);

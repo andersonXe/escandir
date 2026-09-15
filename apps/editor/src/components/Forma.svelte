@@ -28,6 +28,25 @@
 
   let novoNome = $state('');
 
+  /**
+   * Modelo a apagar, esperando o segundo clique.
+   *
+   * Apagar poema já pedia confirmação em dois toques; apagar modelo não pedia
+   * nada, e some do mesmo jeito — sem desfazer e sem lixeira. O × fica ao lado
+   * do nome que se clica para aplicar, que é o pior lugar para um gesto
+   * irreversível de um clique só.
+   */
+  let confirmando = $state<string | null>(null);
+
+  function apagar(id: string): void {
+    if (confirmando !== id) {
+      confirmando = id;
+      return;
+    }
+    confirmando = null;
+    ondeleteModelo(id);
+  }
+
   const atual = $derived(matchModelo(forma, saved));
   const posicoes = $derived(
     Array.from({ length: forma.spec.syllables }, (_, i) => i + 1),
@@ -115,9 +134,14 @@
             <button class="own-apply" onclick={() => applyModelo(modelo)}>{modelo.name}</button>
             <button
               class="own-del"
-              title="apagar modelo"
-              aria-label={`apagar modelo ${modelo.name}`}
-              onclick={() => ondeleteModelo(modelo.id)}>×</button
+              class:aviso={confirmando === modelo.id}
+              title={confirmando === modelo.id ? 'clique de novo para apagar' : 'apagar modelo'}
+              aria-label={confirmando === modelo.id
+                ? `confirmar apagar o modelo ${modelo.name}`
+                : `apagar modelo ${modelo.name}`}
+              onclick={() => apagar(modelo.id)}
+              onblur={() => { if (confirmando === modelo.id) confirmando = null; }}
+              >{confirmando === modelo.id ? 'apagar?' : '×'}</button
             >
           </span>
         {/each}
@@ -424,6 +448,15 @@
 
   .own-del:hover {
     color: var(--err);
+  }
+
+  /* Confirmando: deixa de ser um × e passa a dizer o que vai fazer. */
+  .own-del.aviso {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    color: var(--err);
+    background: var(--sel);
   }
 
   .num,

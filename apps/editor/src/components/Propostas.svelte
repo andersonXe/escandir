@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Candidate } from '../lib/ai/propose.js';
+  import type { Usage } from '../lib/ai/types.js';
 
   interface Props {
     label: string;
@@ -11,15 +12,41 @@
     /** O pedido exato que produziu essa resposta. */
     sent: string | null;
     stage: string;
+    /** O que já se gastou nesta proposta. `null` antes da primeira resposta. */
+    usage: Usage | null;
     onaccept: (candidate: Candidate) => void;
     ondismiss: () => void;
     onretry: () => void;
   }
 
-  const { label, loading, error, candidates, raw, sent, stage, onaccept, ondismiss, onretry }: Props =
+  const { label, loading, error, candidates, raw, sent, stage, usage, onaccept, ondismiss, onretry }: Props =
     $props();
 
   let vendo = $state<'nada' | 'pedido' | 'resposta'>('nada');
+
+  /**
+   * Token em milhares, com uma casa. Mil e quatrocentos lidos de uma vez não
+   * dizem nada; "1,4k" dá a ordem de grandeza, que é o que se compara.
+   */
+  function milhares(n: number): string {
+    if (n < 1000) return String(n);
+    return `${(n / 1000).toFixed(1).replace('.', ',')}k`;
+  }
+
+  /**
+   * A conta, em token e não em dinheiro.
+   *
+   * Preço muda por modelo, por provedor e por mês, e o campo de modelo é texto
+   * livre justamente para não precisar de catálogo — uma tabela de preços aqui
+   * envelheceria e passaria a mentir. Token é o que os dois provedores relatam
+   * e o que o autor converte na tabela de quem cobra dele.
+   */
+  const conta = $derived.by(() => {
+    if (usage === null) return null;
+    const partes = [`${milhares(usage.input)} entrada`, `${milhares(usage.output)} saída`];
+    if (usage.cached > 0) partes.push(`${milhares(usage.cached)} de cache`);
+    return partes.join(' · ');
+  });
 
   async function copiar(texto: string): Promise<void> {
     try {
@@ -40,9 +67,19 @@
     <span class="titulo">{label}</span>
     {#if loading}
       <span class="estado">{stage}…</span>
+      <!-- Desistir precisa estar à vista enquanto se espera: é o momento em que
+           o autor mais quer sair, e é o único em que sair economiza dinheiro. -->
+      <button class="acao" onclick={ondismiss}>desistir</button>
     {:else}
       <button class="acao" onclick={onretry}>outras</button>
       <button class="acao" onclick={ondismiss}>descartar</button>
+    {/if}
+    <!-- Em BYOK quem paga é quem escreve. A conta sobe durante a espera, que é
+         quando ela ainda informa alguma coisa. -->
+    {#if conta !== null}
+      <span class="conta" title="tokens desta proposta, somando todas as idas ao provedor">
+        {conta}
+      </span>
     {/if}
   </div>
 
@@ -58,7 +95,10 @@
         <li>
           <button class="candidato" class:fora={!candidate.ok} onclick={() => onaccept(candidate)}>
             <span class="versos">
-              {#each candidate.lines as line (line.text)}
+              <!-- Chaveado pelo índice, não pelo texto: estrofe com refrão tem
+                   dois versos iguais, e chave repetida derruba o bloco inteiro
+                   — em produção também, não só em desenvolvimento. -->
+              {#each candidate.lines as line, i (i)}
                 <span class="verso">{line.text}</span>
               {/each}
             </span>
@@ -134,6 +174,15 @@
 
   .acao:hover {
     color: var(--ink);
+  }
+
+  /* Informação, não controle: fica em monoespaçado e no tom mais baixo. */
+  .conta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--ink3);
+    opacity: 0.75;
+    white-space: nowrap;
   }
 
   ul {

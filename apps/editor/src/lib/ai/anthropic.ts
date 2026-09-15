@@ -10,6 +10,7 @@
 import {
   baseOf,
   readError,
+  readUsage,
   type CompletionRequest,
   type CompletionResult,
   type Message,
@@ -55,19 +56,62 @@ function toMessage(message: Message): { role: string; content: unknown } {
   }
 }
 
+const CACHE = { type: 'ephemeral' } as const;
+
+/**
+ * Marca o fim do prefixo estável desta chamada.
+ *
+ * O laço de ferramenta reenvia a conversa inteira a cada rodada: a rodada 3 de
+ * uma proposta manda de novo tudo o que a 0, a 1 e a 2 já mandaram. Marcando o
+ * último bloco, cada rodada lê do cache o que a anterior escreveu, e paga cheio
+ * só o que cresceu.
+ *
+ * A marca **anda**: é sempre o último bloco, não um ponto fixo. Fixá-la no
+ * sistema pareceria mais simples e não pagaria — o prefixo de sistema mais
+ * ferramentas tem cerca de 900 tokens, acima do mínimo do Opus mas abaixo do do
+ * Sonnet e bem abaixo do do Haiku, que é o padrão daqui. O que passa do mínimo
+ * em todo modelo é a conversa acumulada, e é ela que a marca móvel alcança.
+ *
+ * Quando não cacheia, não quebra: o provedor ignora e cobra o preço normal.
+ */
+function marcarCache(mensagem: { role: string; content: unknown }): { role: string; content: unknown } {
+  const { role, content } = mensagem;
+  if (typeof content === 'string') {
+    return { role, content: [{ type: 'text', text: content, cache_control: CACHE }] };
+  }
+  if (!Array.isArray(content) || content.length === 0) return mensagem;
+  const blocos = [...content];
+  const ultimo = blocos[blocos.length - 1];
+  if (typeof ultimo !== 'object' || ultimo === null) return mensagem;
+  blocos[blocos.length - 1] = { ...(ultimo as Record<string, unknown>), cache_control: CACHE };
+  return { role, content: blocos };
+}
+
 export const anthropic: Provider = {
   id: 'anthropic',
   name: 'Anthropic',
   defaultBaseUrl: 'https://api.anthropic.com',
   keyUrl: 'https://console.anthropic.com/settings/keys',
-  fallbackModels: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
+  // O primeiro da lista é o que `trocarProvedor` adota, então ele é o padrão de
+  // fato. Precisa ser um modelo rápido: de raciocínio gasta o orçamento de
+  // tokens pensando antes de escrever a primeira palavra, e com a régua na mão
+  // isso não compra medida melhor — compra espera e conta maior.
+  fallbackModels: ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5'],
   supportsTools: true,
 
   async complete(config: ProviderConfig, request: CompletionRequest): Promise<CompletionResult> {
+    const mensagens = request.messages.map(toMessage);
+    if (mensagens.length > 0) {
+      mensagens[mensagens.length - 1] = marcarCache(mensagens[mensagens.length - 1]!);
+    }
+
     const body: Record<string, unknown> = {
       model: config.model,
-      system: request.system,
-      messages: request.messages.map(toMessage),
+      // Em bloco, e não em texto solto, para caber a marca de cache. O sistema
+      // é idêntico entre as rodadas de uma proposta e entre propostas do mesmo
+      // poema — é o prefixo mais estável que existe aqui.
+      system: [{ type: 'text', text: request.system, cache_control: CACHE }],
+      messages: mensagens,
       max_tokens: request.maxTokens,
       temperature: request.temperature,
     };
@@ -88,8 +132,15 @@ export const anthropic: Provider = {
     if (!response.ok) await readError(response);
 
     const payload: unknown = await response.json();
+    // `cache_creation` é o que se escreveu no cache nesta chamada e custa mais
+    // caro; só `cache_read` é economia. Somar os dois em "cached" mentiria.
+    const usage = readUsage(payload, {
+      input: 'input_tokens',
+      output: 'output_tokens',
+      cached: ['cache_read_input_tokens'],
+    });
     const content = (payload as { content?: unknown }).content;
-    if (!Array.isArray(content)) return { text: '', toolCalls: [] };
+    if (!Array.isArray(content)) return { text: '', toolCalls: [], usage };
 
     const text = content
       .filter((block) => (block as { type?: unknown }).type === 'text')
@@ -109,7 +160,7 @@ export const anthropic: Provider = {
       })
       .filter((call) => call.name !== '');
 
-    return { text, toolCalls };
+    return { text, toolCalls, usage };
   },
 
   async listModels(config: ProviderConfig, signal?: AbortSignal): Promise<string[]> {
