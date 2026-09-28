@@ -124,11 +124,11 @@ cobra uma rima por letra em vez de um alvo único para todos os versos.
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 119 testes no app cobrem o laço de
+implementados, BYOK com chave em IndexedDB. 133 testes no app cobrem o laço de
 proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 
-Camadas 2, 3 e 4 prontas em `packages/engine`; 290 testes, entre o corpus
+Camadas 2, 3 e 4 prontas em `packages/engine`; 291 testes, entre o corpus
 escandido à mão e as invariantes da busca. Camadas 1 (léxico pré-computado) e 5
 (sugestão) não existem.
 
@@ -468,6 +468,27 @@ meia palavra.
 Mover o cursor sem Shift desfaz a marca, e `cursorLine` segue o ponteiro no
 `mousedown` em vez de esperar o evento de foco — depender só do foco já deixou
 a ação apontando para o verso errado uma vez.
+
+## Sons parecidos
+
+Rima é um jogo de som entre outros. A ferramenta `sons` dá ao modelo os
+demais, pela mesma razão que deu a régua e o dicionário de rimas: ele lê
+grafia, não som, e faz de ouvido o que não ouve.
+
+- **homófonas** — mesmo som, outra grafia e outro sentido ("concerto" e
+  "conserto"). É o parente barato do duplo sentido.
+- **parecidas** — um som de diferença ("pranto" e "pronto", "sombra" e "sobra").
+- **aliteração** — o mesmo começo. **Assonância** — as mesmas vogais.
+
+Tudo se mede sobre a chave fonêmica da rima aplicada à palavra inteira. A
+busca percorre todas as palavras, então não usa o índice fatiado por
+terminação: usa `palavras.tsv`, uma lista à parte com as comuns, as correntes
+e a tradição — 135 mil palavras, ~480 KB comprimidos, baixados só na primeira
+vez que o modelo pede. A amostra prefere o comum e a tradição: aliteração em
+"m" são sete mil palavras, e sorteadas sem preferência vinham "montanhismo".
+
+A descrição diz que usar não é obrigação, e o pedido cita o som como um dos
+pontos de partida possíveis. Obrigar faria todo verso virar trocadilho.
 
 ## Rima idêntica não é rima
 

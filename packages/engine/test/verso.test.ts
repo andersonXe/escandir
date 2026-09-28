@@ -240,6 +240,16 @@ describe('terminação de rima', () => {
     expect(key('e o que')).toBe('');
   });
 
+  it('"gu" antes de consoante é vogal, não semivogal', () => {
+    // "ân-gu-lo" tem três sílabas depois da tônica começar; ler o "u" como
+    // semivogal engolia uma, e "ângulo" rimava com o que não rimava.
+    expect(ptBR.prosody.rhymeSound('angulo')).toBe(ptBR.prosody.rhymeSound('ângulo'));
+    expect(ptBR.prosody.rhymeVowels(ptBR.prosody.rhymeSound('angulo'))).toBe('a~uu');
+    // E continua semivogal antes de a/o, e muda antes de e/i.
+    expect(ptBR.prosody.rhymeSound('agua')).toBe('agwa');
+    expect(ptBR.prosody.rhymeSound('guerra')).toBe('geRa');
+  });
+
   it('palavra de classe fechada no fim do verso carrega a rima', () => {
     // Não desenha tempo forte, mas tem tônica própria: "quando" rima com
     // "brando". Procurar só o tempo forte deixava esses versos sem rima.

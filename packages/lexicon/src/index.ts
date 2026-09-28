@@ -130,6 +130,38 @@ export class Lexicon {
     return saida;
   }
 
+  #words: Promise<LexiconEntry[]> | null = null;
+
+  /**
+   * A lista inteira da busca por som: comuns, correntes e tradição, sem o raro
+   * da fala nem o técnico do dicionário.
+   *
+   * O índice de rimas é fatiado pela terminação e não serve para achar "mar" a
+   * partir de "amar", nem aliteração. Essa busca percorre tudo, então a lista
+   * vem inteira, uma vez: ~480 KB comprimidos, baixados só quando alguém pede.
+   */
+  async words(signal?: AbortSignal): Promise<LexiconEntry[]> {
+    if (this.#words === null) {
+      const pedido = (async () => {
+        const url = `${this.#baseUrl}/palavras.tsv`;
+        const response = await fetch(url, signal === undefined ? {} : { signal });
+        if (!response.ok) throw new Error(`lista de palavras indisponível (${response.status})`);
+        const texto = await response.text();
+        return texto.split('\n').flatMap((linha): LexiconEntry[] => {
+          const [word, syllables, stressFromEnd, band] = linha.split('\t');
+          if (word === undefined || word === '') return [];
+          return [{ word, syllables: Number(syllables), stressFromEnd: Number(stressFromEnd), band: Number(band) }];
+        });
+      })();
+      // Falhou, pode tentar de novo depois; não guarda a promessa rejeitada.
+      pedido.catch(() => {
+        if (this.#words === pedido) this.#words = null;
+      });
+      this.#words = pedido;
+    }
+    return this.#words;
+  }
+
   /** Quantas palavras existem para este som, sem filtro. Barato depois da 1ª busca. */
   async count(sound: string, signal?: AbortSignal): Promise<number> {
     if (sound === '') return 0;

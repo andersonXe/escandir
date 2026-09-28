@@ -71,9 +71,11 @@ export function rhymeSound(tail: string): string {
     } else if (c === 'r' && n === 'r') {
       out.push('R');
       i += 2;
-    } else if ((c === 'q' || c === 'g') && n === 'u') {
+    } else if ((c === 'q' || c === 'g') && n === 'u' && isVowel(depois)) {
       const base = c === 'q' ? 'k' : 'g';
-      // O `u` é mudo antes de e/i e semivogal antes de a/o.
+      // O `u` é mudo antes de e/i e semivogal antes de a/o. Antes de consoante
+      // ele é vogal plena ("ân-gu-lo", "can-gu-ru") e segue pelo caminho comum:
+      // tratá-lo como semivogal ali engolia uma sílaba da chave.
       out.push(depois === 'e' || depois === 'i' ? base : `${base}w`);
       i += 2;
     } else if (c === 'ç') {

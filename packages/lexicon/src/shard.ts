@@ -38,7 +38,7 @@ export type PackedEntry = readonly [
   syllables: number,
   /** Tônica contada do fim: 1 oxítona, 2 paroxítona, 3 proparoxítona. */
   stressFromEnd: number,
-  /** Faixa de frequência: 0 muito comum, 4 raro. */
+  /** Faixa: 0 a 4 frequência na fala, 5 tradição, 6 só dicionário. */
   band: number,
 ];
 
@@ -47,5 +47,7 @@ export interface Manifest {
   readonly shards: number;
   readonly words: number;
   readonly sounds: number;
+  /** Palavras em `palavras.tsv`, a lista da busca por som. */
+  readonly soundWords?: number;
   readonly sources: readonly { readonly name: string; readonly license: string }[];
 }

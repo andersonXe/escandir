@@ -28,6 +28,7 @@ import { insideBlock, lastWord, schemeChecks } from './esquema.js';
 import { diagnose } from './poema.js';
 import { buildSystem, buildUser, SEPARATOR, type ProposalContext } from './prompt.js';
 import { RIMAS, rimasTool, runRimas, wordsOf } from './rimas.js';
+import { runSons, SONS, sonsTool } from './sons.js';
 import { runTool, toolsFor, type Frame, type SchemeFrame } from './tools.js';
 import { addUsage, NO_USAGE, type CompletionRequest, type CompletionResult, type Message, type Usage } from './types.js';
 
@@ -324,8 +325,29 @@ export async function propose(
       ? [
           ...toolsFor(current.spec, current.rhymeTarget, frame, scheme),
           ...(podeRimar && alvo !== null ? [rimasTool(alvo, current.spec)] : []),
+          // Jogo de som serve a qualquer verso, com ou sem rima a cumprir.
+          ...(options.lexicon !== undefined ? [sonsTool(current.spec)] : []),
         ]
       : undefined;
+
+    /**
+     * Uma chamada de ferramenta. Falha de rede no dicionário não derruba a
+     * proposta: o modelo recebe o erro e segue sem a consulta.
+     */
+    const rodar = async (nome: string, argumentos: string): Promise<string> => {
+      try {
+        if (nome === RIMAS && options.lexicon !== undefined && alvo !== null) {
+          return await runRimas(argumentos, options.lexicon, alvo, current.usedRhymeWords, { obra });
+        }
+        if (nome === SONS && options.lexicon !== undefined) {
+          return await runSons(argumentos, options.lexicon, { obra });
+        }
+        return runTool(nome, argumentos, current.spec, current.rhymeTarget, frame, scheme);
+      } catch (erro) {
+        if (options.signal?.aborted === true) throw erro;
+        return JSON.stringify({ erro: `consulta indisponível: ${erro instanceof Error ? erro.message : 'falha'}` });
+      }
+    };
 
     for (let round = 0; round <= maxRounds; round += 1) {
       options.onProgress?.(round === 0 ? 'escrevendo' : `medindo (${round})`);
@@ -357,11 +379,7 @@ export async function propose(
 
       messages.push({ role: 'assistant-tools', content: result.text, calls: result.toolCalls });
       for (const call of result.toolCalls) {
-        const content =
-          call.name === RIMAS && options.lexicon !== undefined && alvo !== null
-            ? await runRimas(call.rawArguments, options.lexicon, alvo, current.usedRhymeWords, { obra })
-            : runTool(call.name, call.rawArguments, current.spec, current.rhymeTarget, frame, scheme);
-        messages.push({ role: 'tool', callId: call.id, name: call.name, content });
+        messages.push({ role: 'tool', callId: call.id, name: call.name, content: await rodar(call.name, call.rawArguments) });
       }
     }
     return [];

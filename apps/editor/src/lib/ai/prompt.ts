@@ -169,7 +169,8 @@ const VARIEDADE = `PROPOSTAS DIFERENTES DE VERDADE
 - O autor escolhe entre as propostas. Se elas se parecem, ele não tem escolha.
 - Antes de rascunhar, dê a cada proposta um ponto de partida diferente, tirado
   da obra: outra imagem do texto, outro elemento do tema ou dos comentários,
-  outro ângulo de quem fala, outra construção de frase.
+  outro ângulo de quem fala, outra construção de frase, outro jogo de som —
+  o eco entre duas palavras, a de mesmo som e outro sentido, a aliteração.
 - Cada proposta termina numa palavra diferente.
 - Se o pedido traz propostas já mostradas ao autor, ele as viu e pediu de novo:
   quer outra coisa. Não as repita, não as parafraseie, não reuse as palavras

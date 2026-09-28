@@ -181,6 +181,19 @@ const porSom = new Map();
 let escandidas = 0;
 let semRima = 0;
 
+/*
+ * A lista para a ferramenta de sons parecidos.
+ *
+ * O índice de rimas é fatiado pela terminação, e isso não serve para achar
+ * "mar" a partir de "amar", nem aliteração, que é o começo da palavra. Essa
+ * busca percorre as palavras todas — então vai numa lista à parte, só com as
+ * que valem a pena oferecer: comuns e correntes na fala, e a tradição. O raro
+ * da fala e o técnico do dicionário ficam de fora: a lista seria três vezes
+ * maior para acrescentar "etmoidectomia".
+ */
+const PARA_SONS = new Set([0, 1, 2, 3, TRADICAO]);
+const paraSons = [];
+
 ordem.forEach((palavra, posto) => {
   const reading = scanVerse(palavra, ptBR, analyzer, { spec: VERSO_LIVRE }).best;
   if (reading === null) return;
@@ -216,6 +229,7 @@ ordem.forEach((palavra, posto) => {
   const lista = porSom.get(rima.sound);
   if (lista === undefined) porSom.set(rima.sound, [entrada]);
   else lista.push(entrada);
+  if (PARA_SONS.has(entrada[3])) paraSons.push(entrada);
   escandidas += 1;
 });
 
@@ -239,11 +253,19 @@ for (let i = 0; i < SHARD_COUNT; i += 1) {
   await writeFile(join(destino, shardName(i)), conteudo, 'utf8');
 }
 
+// Texto com tabulação, não JSON: é a mesma informação em dois terços do peso,
+// e o navegador a lê inteira de uma vez.
+paraSons.sort((a, b) => a[3] - b[3] || a[0].localeCompare(b[0], 'pt-BR'));
+const sons = paraSons.map((e) => e.join('\t')).join('\n');
+await writeFile(join(destino, 'palavras.tsv'), sons, 'utf8');
+console.log(`  palavras.tsv: ${paraSons.length.toLocaleString('pt-BR')} palavras, ${Math.round(sons.length / 1024)} KB`);
+
 const manifest = {
   version: 1,
   shards: SHARD_COUNT,
   words: escandidas,
   sounds: porSom.size,
+  soundWords: paraSons.length,
   sources: [
     { name: 'VERO, corretor ortográfico pt_BR do LibreOffice (filtro)', license: 'LGPL-3.0 / MPL' },
     { name: 'Wikisource, poesia em domínio público (data/poesia.txt)', license: 'domínio público' },
