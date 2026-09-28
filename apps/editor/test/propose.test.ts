@@ -393,6 +393,95 @@ describe('o pedido de trecho de vários versos', () => {
   });
 });
 
+describe('poema ou estrofe a partir do tema', () => {
+  const MAR = 'a tarde desce lenta sobre o mar';
+  const LUGAR = 'e nada mais se move no lugar';
+  const TRAZIA = 'e o vento esquece o nome que trazia';
+  const SABIA = 'a pedra sabe o pouco que sabia';
+
+  function poema(patch: Partial<Extract<ProposalContext['task'], { kind: 'poem' }>> = {}): ProposalContext {
+    return contexto({
+      kind: 'stanza',
+      theme: 'a tarde no porto, ninguém no cais',
+      task: { kind: 'poem', source: 'theme', instruction: '', verses: 4, scheme: 'ABBA', lead: { texts: [], rhymes: [] }, ...patch },
+      verses: 4,
+      candidates: 2,
+    });
+  }
+
+  it('cobra o esquema dentro do próprio candidato', () => {
+    const [bom] = evaluate([[MAR, TRAZIA, SABIA, LUGAR]], poema());
+    expect(bom?.ok).toBe(true);
+    expect(bom?.detail).toBe('4 versos · 10 sílabas');
+  });
+
+  it('o 4º tem de rimar com o 1º, e a frase diz com qual', () => {
+    const [furado] = evaluate([[MAR, TRAZIA, SABIA, TRAZIA.replace('trazia', 'sorria')]], poema());
+    expect(furado?.ok).toBe(false);
+    expect(furado?.detail).toContain('verso 4');
+    expect(furado?.detail).toContain('com o 1º');
+  });
+
+  it('palavra repetida no fim não é rima, nem dentro do bloco', () => {
+    const [repetido] = evaluate([[MAR, 'e nada mais se move sobre o mar']], poema({ verses: 2, scheme: 'AA' }));
+    expect(repetido?.ok).toBe(false);
+    expect(repetido?.detail).toBe('verso 2: repete "mar"');
+  });
+
+  it('bloco do tamanho errado não fecha', () => {
+    const [curto] = evaluate([[MAR, TRAZIA]], poema());
+    expect(curto?.ok).toBe(false);
+    expect(curto?.detail).toBe('2 versos, pedidos 4');
+  });
+
+  it('extensão livre aceita qualquer tamanho', () => {
+    expect(evaluate([[MAR, LUGAR]], poema({ verses: 0, scheme: 'AA' }))[0]?.ok).toBe(true);
+  });
+
+  it('a estrofe seguinte continua o esquema do que já está escrito', () => {
+    // AABB com um verso em -ar já no poema: o primeiro do bloco é o 2º A.
+    const continuacao = poema({ verses: 1, scheme: 'AABB', lead: { texts: [MAR], rhymes: [alvo('ar')] } });
+    expect(evaluate([[LUGAR]], continuacao)[0]?.ok).toBe(true);
+    const fora = evaluate([[SABIA]], continuacao)[0];
+    expect(fora?.ok).toBe(false);
+    expect(fora?.detail).toContain('verso já escrito');
+  });
+
+  it('o pedido diz o esquema por extenso e proíbe linha em branco', () => {
+    const user = buildUser(poema());
+    expect(user).toContain('Escreva o poema inteiro: 4 versos');
+    expect(user).toContain('verso a verso: ABBA');
+    expect(user).toContain('A: versos 1º, 4º');
+    expect(buildSystem(poema())).toContain('sem linha em branco');
+  });
+
+  it('continuação diz com que verso escrito cada rima se prende', () => {
+    const user = buildUser(poema({ verses: 1, scheme: 'AABB', lead: { texts: [MAR], rhymes: [alvo('ar')] } }));
+    expect(user).toContain('estrofe seguinte');
+    expect(user).toContain(`rima em "-ar", com "${MAR}"`);
+  });
+
+  it('comentário como fonte vai no pedido com o texto do autor', () => {
+    const user = buildUser(poema({ source: 'note', instruction: 'um soneto sobre o cais vazio' }));
+    expect(user).toContain('um soneto sobre o cais vazio');
+  });
+
+  it('a régua confere o esquema quando recebe o bloco na ordem', () => {
+    const cru = runTool(
+      ESCANDIR,
+      JSON.stringify({ versos: [MAR, TRAZIA, SABIA, SABIA.replace('sabia', 'sorria')] }),
+      FORMAS.heroico,
+      null,
+      undefined,
+      { scheme: 'ABBA', lead: { texts: [], rhymes: [] } },
+    );
+    const { medidas } = JSON.parse(cru) as { medidas: { cabe: boolean; problema?: string }[] };
+    expect(medidas.slice(0, 3).every((m) => m.cabe)).toBe(true);
+    expect(medidas[3]?.cabe).toBe(false);
+    expect(medidas[3]?.problema).toContain('letra A');
+  });
+});
+
 describe('o tema do poema', () => {
   const comTema = contexto({
     theme: 'a cidade vista de uma janela alta, ninguém na rua, começo de tarde',

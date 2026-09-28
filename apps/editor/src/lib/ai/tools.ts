@@ -18,10 +18,12 @@ import {
   rhymeOf,
   rhymes,
   scanVerse,
+  NO_RHYME,
   type MetricSpec,
   type Rhyme,
 } from '@escandir/engine';
 
+import { lastWord, schemeChecks, type SchemeLead } from './esquema.js';
 import type { ToolDefinition } from './types.js';
 
 const analyzer = createAnalyzer(ptBR);
@@ -44,10 +46,20 @@ function encaixar(texto: string, frame?: Frame): string {
   return frame === undefined ? texto : frame.before + texto + frame.after;
 }
 
+/**
+ * Esquema a conferir dentro do que o modelo manda medir, quando o pedido é de
+ * um bloco inteiro. Aí a ordem dos versos importa: o 4º rima com o 1º.
+ */
+export interface SchemeFrame {
+  readonly scheme: string;
+  readonly lead: SchemeLead;
+}
+
 export function toolsFor(
   spec: MetricSpec,
   rhymeTarget: Rhyme | null,
   frame?: Frame,
+  scheme?: SchemeFrame,
 ): ToolDefinition[] {
   const alvo =
     spec.syllables > 0
@@ -57,6 +69,10 @@ export function toolsFor(
             : ''
         }${rhymeTarget !== null && rhymeTarget.tail !== '' ? `, rimando em "-${rhymeTarget.tail}" (por som, não por letra)` : ''}.`
       : 'A forma pedida é verso livre.';
+  const esquema =
+    scheme !== undefined && scheme.scheme !== ''
+      ? 'Mande o bloco inteiro, um verso por item, NA ORDEM: a ferramenta confere também o esquema de rima entre eles.'
+      : '';
 
   return [
     {
@@ -68,6 +84,7 @@ export function toolsFor(
         'Separa as sílabas poéticas, marca as tônicas,',
         'Devolve a contagem correta — use sempre, não confie na sua própria contagem.',
         alvo,
+        ...(esquema === '' ? [] : [esquema]),
         'Chame para cada verso que você cogitar, antes de responder. Se não fechar,',
         'reescreva e meça de novo.',
       ].join(' '),
@@ -106,19 +123,22 @@ function medir(
   spec: MetricSpec,
   rhymeTarget: Rhyme | null,
   frame?: Frame,
-): Medida {
+): { medida: Medida; rhyme: Rhyme } {
   const texto = encaixar(bruto, frame);
   const reading = scanVerse(texto, ptBR, analyzer, { spec }).best;
   if (reading === null) {
     return {
-      verso: texto,
-      silabas: '',
-      contagem: 0,
-      total: 0,
-      tonicas: [],
-      rima: '',
-      cabe: false,
-      problema: 'sem sílabas',
+      medida: {
+        verso: texto,
+        silabas: '',
+        contagem: 0,
+        total: 0,
+        tonicas: [],
+        rima: '',
+        cabe: false,
+        problema: 'sem sílabas',
+      },
+      rhyme: NO_RHYME,
     };
   }
   const result = assess(reading, spec);
@@ -139,23 +159,63 @@ function medir(
   if (rimaErrada) problemas.push(`rima em "-${rima.tail}", precisa ser "-${rhymeTarget?.tail ?? ''}"`);
 
   return {
-    verso: texto,
-    // A divisão explícita ensina mais que o número: o modelo vê onde as
-    // elisões aconteceram e onde a contagem parou.
-    silabas: reading.syllables
-      .map((s, i) => {
-        const marca = s.stressStrength === 'strong' ? s.text.toUpperCase() : s.text;
-        return i + 1 > result.count ? `(${marca})` : marca;
-      })
-      .join('|'),
-    contagem: result.count,
-    total: reading.total,
-    tonicas,
-    rima: rima.tail,
-    cabe: problemas.length === 0,
-    ...(problemas.length === 0 ? {} : { problema: problemas.join('; ') }),
+    medida: {
+      verso: texto,
+      // A divisão explícita ensina mais que o número: o modelo vê onde as
+      // elisões aconteceram e onde a contagem parou.
+      silabas: reading.syllables
+        .map((s, i) => {
+          const marca = s.stressStrength === 'strong' ? s.text.toUpperCase() : s.text;
+          return i + 1 > result.count ? `(${marca})` : marca;
+        })
+        .join('|'),
+      contagem: result.count,
+      total: reading.total,
+      tonicas,
+      rima: rima.tail,
+      cabe: problemas.length === 0,
+      ...(problemas.length === 0 ? {} : { problema: problemas.join('; ') }),
+    },
+    rhyme: rima,
   };
 }
+
+/** Acrescenta à medida de cada verso o que o esquema de rima cobra dele. */
+function conferirEsquema(
+  medidas: readonly { medida: Medida; rhyme: Rhyme }[],
+  scheme: SchemeFrame,
+): Medida[] {
+  const checks = schemeChecks(
+    medidas.map((m) => m.medida.verso),
+    medidas.map((m) => m.rhyme),
+    scheme.scheme,
+    scheme.lead,
+  );
+  return medidas.map(({ medida, rhyme }, i) => {
+    const check = checks[i];
+    const falhas: string[] = medida.problema === undefined ? [] : [medida.problema];
+    if (check !== undefined && check.letter !== '') {
+      const palavra = lastWord(medida.verso);
+      if (check.used.includes(palavra)) {
+        falhas.push(`repete "${palavra}", que já fecha outro verso da letra ${check.letter}`);
+      } else if (check.target !== null && !rhymes(rhyme, check.target)) {
+        const com = check.ref !== null && check.ref >= 0 ? `o ${check.ref + 1}º verso` : 'o verso já escrito';
+        falhas.push(`letra ${check.letter}: rima em "-${rhyme.tail}", precisa rimar com ${com} ("-${check.target.tail}")`);
+      }
+    }
+    const { problema: _, ...resto } = medida;
+    return falhas.length === 0
+      ? { ...resto, cabe: true }
+      : { ...resto, cabe: false, problema: falhas.join('; ') };
+  });
+}
+
+/**
+ * Teto de versos por chamada. Doze bastam para verso solto; um bloco inteiro
+ * precisa caber de uma vez, ou o esquema não se confere.
+ */
+const MAX_VERSOS = 12;
+const MAX_VERSOS_BLOCO = 40;
 
 /**
  * Executa a chamada de ferramenta. O resultado volta como JSON porque é o que
@@ -168,6 +228,7 @@ export function runTool(
   spec: MetricSpec,
   rhymeTarget: Rhyme | null,
   frame?: Frame,
+  scheme?: SchemeFrame,
 ): string {
   if (name !== ESCANDIR) return JSON.stringify({ erro: `ferramenta desconhecida: ${name}` });
 
@@ -188,6 +249,12 @@ export function runTool(
 
   return JSON.stringify({
     legenda: 'silabas: divisão da leitura; MAIÚSCULA = tônica; (parênteses) = extramétrica, não conta',
-    medidas: lista.slice(0, 12).map((verso) => medir(verso, spec, rhymeTarget, frame)),
+    medidas:
+      scheme === undefined
+        ? lista.slice(0, MAX_VERSOS).map((verso) => medir(verso, spec, rhymeTarget, frame).medida)
+        : conferirEsquema(
+            lista.slice(0, MAX_VERSOS_BLOCO).map((verso) => medir(verso, spec, null, frame)),
+            scheme,
+          ),
   });
 }

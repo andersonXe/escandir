@@ -24,9 +24,10 @@ import {
 
 import type { Lexicon } from '@escandir/lexicon';
 
+import { lastWord, schemeChecks } from './esquema.js';
 import { buildSystem, buildUser, SEPARATOR, type ProposalContext } from './prompt.js';
 import { RIMAS, rimasTool, runRimas } from './rimas.js';
-import { runTool, toolsFor, type Frame } from './tools.js';
+import { runTool, toolsFor, type Frame, type SchemeFrame } from './tools.js';
 import { addUsage, NO_USAGE, type CompletionRequest, type CompletionResult, type Message, type Usage } from './types.js';
 
 const analyzer = createAnalyzer(ptBR);
@@ -37,6 +38,11 @@ export interface CandidateLine {
   readonly rhyme: Rhyme;
   readonly fitsMeter: boolean;
   readonly fitsRhyme: boolean;
+  /**
+   * O que está errado neste verso, já dito. Só num bloco com esquema: ali a
+   * rima depende de outro verso do candidato, e a frase precisa dizer qual.
+   */
+  readonly problem?: string;
 }
 
 export interface Candidate {
@@ -102,12 +108,6 @@ export function splitCandidates(raw: string): string[][] {
         .filter((line) => line !== ''),
     )
     .filter((linhas) => linhas.length > 0);
-}
-
-/** Última palavra da linha, que é onde a rima cai. */
-function lastWord(text: string): string {
-  const palavras = text.toLowerCase().match(/[\p{L}][\p{L}'’-]*/gu);
-  return palavras === null ? '' : (palavras[palavras.length - 1] ?? '');
 }
 
 function measure(
@@ -191,8 +191,57 @@ function pareceProposta(candidate: Candidate, spec: MetricSpec): boolean {
   return candidate.lines.every((line) => (line.assessment?.count ?? 0) <= spec.syllables * 2);
 }
 
+function schemeOf(context: ProposalContext): SchemeFrame | undefined {
+  const task = context.task;
+  if (task.kind !== 'poem') return undefined;
+  return { scheme: task.scheme, lead: task.lead };
+}
+
+/**
+ * Um bloco inteiro — estrofe seguinte ou poema — medido verso a verso, com a
+ * rima de cada um cobrada contra o verso de mesma letra **dentro do próprio
+ * candidato** (ou do que já estava escrito, quando o bloco continua o poema).
+ */
+function evaluateBlock(linhas: readonly string[], context: ProposalContext, scheme: SchemeFrame): Candidate {
+  const medidos = linhas.map((texto) => measure(texto, context.spec, null));
+  const checks = schemeChecks(
+    medidos.map((m) => m.text),
+    medidos.map((m) => m.rhyme),
+    scheme.scheme,
+    scheme.lead,
+  );
+  const lines = medidos.map((line, i): CandidateLine => {
+    const check = checks[i];
+    const palavra = lastWord(line.text);
+    const repete = check !== undefined && check.letter !== '' && check.used.includes(palavra);
+    const rima =
+      check === undefined || check.target === null || check.target.sound === '' || rhymes(line.rhyme, check.target);
+    const fitsRhyme = !repete && rima;
+    let problem: string | undefined;
+    if (!line.fitsMeter) problem = describe([line], context.spec);
+    else if (repete) problem = `repete "${palavra}"`;
+    else if (!rima && check !== undefined && check.target !== null) {
+      const com = check.ref !== null && check.ref >= 0 ? `o ${check.ref + 1}º` : 'o verso já escrito';
+      problem = `rima em -${line.rhyme.tail}, devia rimar com ${com} (-${check.target.tail})`;
+    }
+    return { ...line, fitsRhyme, ...(problem === undefined ? {} : { problem: `verso ${i + 1}: ${problem}` }) };
+  });
+
+  const pedidos = context.task.kind === 'poem' ? context.task.verses : 0;
+  const tamanhoCerto = pedidos <= 0 || lines.length === pedidos;
+  const quebrado = lines.find((line) => line.problem !== undefined);
+  const ok = tamanhoCerto && quebrado === undefined;
+  const medida = context.spec.syllables > 0 ? `${context.spec.syllables} sílabas` : 'verso livre';
+  const detail = !tamanhoCerto
+    ? `${lines.length} versos, pedidos ${pedidos}`
+    : (quebrado?.problem ?? `${lines.length} versos · ${medida}`);
+  return { lines, ok, detail };
+}
+
 export function evaluate(blocks: readonly string[][], context: ProposalContext): Candidate[] {
+  const scheme = schemeOf(context);
   const candidates = blocks.map((linhas): Candidate => {
+    if (scheme !== undefined) return evaluateBlock(linhas, context, scheme);
     const lines = linhas.map((bruto) =>
       measure(compose(bruto, context), context.spec, context.rhymeTarget, context.usedRhymeWords),
     );
@@ -239,12 +288,13 @@ export async function propose(
     options.onSent?.(`### SISTEMA\n${system}\n\n### PEDIDO\n${user}`);
     const messages: Message[] = [{ role: 'user', content: user }];
     const frame = frameOf(current);
+    const scheme = schemeOf(current);
     const alvo = current.rhymeTarget;
     // O dicionário só entra quando há rima a cumprir: sem alvo, seria ruído.
     const podeRimar = options.lexicon !== undefined && alvo !== null && alvo.sound !== '';
     const tools = useTools
       ? [
-          ...toolsFor(current.spec, current.rhymeTarget, frame),
+          ...toolsFor(current.spec, current.rhymeTarget, frame, scheme),
           ...(podeRimar && alvo !== null ? [rimasTool(alvo, current.spec)] : []),
         ]
       : undefined;
@@ -257,7 +307,9 @@ export async function propose(
         // Folgado de propósito: modelo de raciocínio gasta deste mesmo teto
         // antes de escrever a primeira palavra visível. Apertado, ele raciocina
         // até o limite e devolve vazio.
-        maxTokens: current.kind === 'stanza' ? 6000 : 4000,
+        // Poema inteiro são dois blocos de até quarenta versos, fora a conversa
+        // com a régua.
+        maxTokens: current.task.kind === 'poem' ? 10000 : current.kind === 'stanza' ? 6000 : 4000,
         // Mais baixa que antes: com a régua na mão, o que se quer do modelo é
         // variedade de imagem, não de contagem.
         temperature: 0.8,
@@ -280,7 +332,7 @@ export async function propose(
         const content =
           call.name === RIMAS && options.lexicon !== undefined && alvo !== null
             ? await runRimas(call.rawArguments, options.lexicon, alvo, current.usedRhymeWords)
-            : runTool(call.name, call.rawArguments, current.spec, current.rhymeTarget, frame);
+            : runTool(call.name, call.rawArguments, current.spec, current.rhymeTarget, frame, scheme);
         messages.push({ role: 'tool', callId: call.id, name: call.name, content });
       }
     }
@@ -298,7 +350,12 @@ export async function propose(
     .flatMap((candidate) => candidate.lines)
     .filter((line) => !line.fitsMeter || !line.fitsRhyme)
     .slice(0, 6)
-    .map((line) => `"${line.text}" — ${describe([line], context.spec, context.usedRhymeWords)}`);
+    .map((line) => `"${line.text}" — ${line.problem ?? describe([line], context.spec, context.usedRhymeWords)}`);
+  // Bloco com a extensão errada não tem verso furado a apontar, mas também não
+  // serve: sem isto a segunda tentativa não saberia o que corrigir.
+  if (rejected.length === 0) {
+    rejected.push(...first.filter((candidate) => !candidate.ok).slice(0, 2).map((c) => c.detail));
+  }
 
   if (rejected.length === 0) {
     // Nem candidato bom nem candidato ruim: o modelo devolveu nada. Repetir com

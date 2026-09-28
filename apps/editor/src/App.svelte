@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { createAnalyzer, ptBR, rhymeOf, scanVerse, type Rhyme } from '@escandir/engine';
+  import { createAnalyzer, NO_RHYME, ptBR, rhymeOf, scanVerse, type Rhyme } from '@escandir/engine';
 
   import Ajustes from './components/Ajustes.svelte';
   import Biblioteca from './components/Biblioteca.svelte';
   import Forma from './components/Forma.svelte';
   import Line from './components/Line.svelte';
+  import Propostas from './components/Propostas.svelte';
   import {
     DEFAULT_STYLE,
     fileName,
@@ -26,7 +27,8 @@
     type Forma as FormaType,
     type Modelo,
   } from './lib/forma.js';
-  import { actionFor, type Action } from './lib/ai/action.js';
+  import { actionFor, themeAction, type Action } from './lib/ai/action.js';
+  import type { SchemeLead } from './lib/ai/esquema.js';
   import type { ProposalContext, Task } from './lib/ai/prompt.js';
   import { propose, type Candidate } from './lib/ai/propose.js';
   import { providerById } from './lib/ai/registry.js';
@@ -70,6 +72,8 @@
   /** Do que o poema trata. `theme` já é o claro/escuro; aqui é o assunto. */
   let tema = $state('');
   let temaAberto = $state(false);
+  /** O campo do tema está em foco: é quando ele oferece escrever a partir dele. */
+  let temaFocado = $state(false);
   let forma = $state<FormaType>(DEFAULT_FORMA);
   let estilo = $state<PoemStyle>(DEFAULT_STYLE);
   let theme = $state<'claro' | 'escuro'>('claro');
@@ -109,7 +113,15 @@
   const aiReady = $derived(aiConfig.apiKey.trim() !== '' && aiConfig.model.trim() !== '');
 
   interface ProposalState {
+    /** Onde o painel aparece: abaixo de uma linha, ou abaixo do tema. */
+    readonly anchor: 'line' | 'theme';
+    /** Linha que pediu. Irrelevante quando o pedido veio do tema. */
     readonly index: number;
+    /**
+     * Onde a proposta entra se aceita. Coincide com `index`, exceto quando o
+     * pedido veio do tema ou de um comentário: o bloco entra depois deles.
+     */
+    readonly insertAt: number;
     readonly action: Action;
     readonly loading: boolean;
     readonly error: string | null;
@@ -530,7 +542,87 @@
       spec: forma.spec,
       rhymeTarget: rhymeTargetFor(index)?.tail ?? null,
       emptyRun: emptyRunFrom(index),
+      poemEmpty: filled === 0,
     });
+  }
+
+  /** A ação do tema, com o que já está escrito. `null` sem tema. */
+  const temaAcao = $derived(
+    themeAction({
+      theme: tema,
+      written: filled,
+      declared: forma.verses,
+      scheme: forma.rhyme,
+      spec: forma.spec,
+    }),
+  );
+
+  /**
+   * Onde entra um bloco pedido a partir do tema: logo depois do último verso
+   * escrito, ocupando as linhas vazias que houver ali. Num poema sem verso, na
+   * primeira linha de verso vazia — as que a tela de Forma abriu.
+   */
+  function themeSlot(): { insertAt: number; replaces: number } {
+    let last = -1;
+    lines.forEach((line, i) => {
+      if (line.kind === 'verse' && line.text.trim() !== '') last = i;
+    });
+    let insertAt = last + 1;
+    if (last === -1) {
+      const primeira = lines.findIndex((line) => line.kind === 'verse');
+      insertAt = primeira === -1 ? lines.length : primeira;
+    }
+    return { insertAt, replaces: emptyRunFrom(insertAt) };
+  }
+
+  /**
+   * Os versos antes do ponto de entrada, com a rima de cada um: o esquema do
+   * bloco novo continua o deles. Linha de verso vazia entra também, porque no
+   * editor ela ocupa uma letra do esquema.
+   */
+  function leadBefore(insertAt: number): SchemeLead {
+    const versos = lines.slice(0, insertAt).filter((line) => line.kind === 'verse');
+    return {
+      texts: versos.map((line) => line.text),
+      rhymes: versos.map((line) => {
+        if (line.text.trim() === '') return NO_RHYME;
+        const reading = scanVerse(line.text, ptBR, rhymeAnalyzer, { spec: forma.spec }).best;
+        return reading === null ? NO_RHYME : rhymeOf(reading, line.text, ptBR.prosody);
+      }),
+    };
+  }
+
+  /** Contexto de um bloco a partir do tema ou de um comentário. */
+  function blockContext(
+    action: Action,
+    insertAt: number,
+    replaces: number,
+    source: 'theme' | 'note',
+    instruction: string,
+  ): ProposalContext {
+    const verses = action.verses ?? (forma.verses > 0 ? forma.verses : replaces >= 2 ? replaces : 0);
+    return {
+      kind: 'stanza',
+      spec: { syllables: forma.spec.syllables, requiredStresses: [...forma.spec.requiredStresses] },
+      // A rima de cada verso sai do esquema, dentro do bloco: alvo único não serve.
+      rhymeTarget: null,
+      before: lines.slice(0, insertAt).map((l) => l.text),
+      after: lines.slice(insertAt + replaces).map((l) => l.text),
+      theme: tema,
+      notes: lines.filter((l) => l.kind === 'note' && l.text.trim() !== '').map((l) => l.text),
+      task: {
+        kind: 'poem',
+        source,
+        instruction,
+        verses,
+        scheme: forma.rhyme,
+        lead: leadBefore(insertAt),
+      },
+      usedRhymeWords: [],
+      verses,
+      candidates: 2,
+      hasTool: providerById(aiConfig.providerId)?.supportsTools === true,
+    };
   }
 
   /**
@@ -620,7 +712,17 @@
     };
   }
 
-  async function runAction(index: number, action: Action): Promise<void> {
+  function runAction(index: number, action: Action): Promise<void> {
+    if (action.id === 'write-poem') {
+      // Comentário num poema vazio: o poema entra logo abaixo dele, e o
+      // comentário fica — é do autor, e não sai na leitura.
+      const insertAt = index + 1;
+      const replaces = emptyRunFrom(insertAt);
+      const instruction = lines[index]?.text ?? '';
+      return request('line', index, insertAt, replaces, action, () =>
+        blockContext(action, insertAt, replaces, 'note', instruction),
+      );
+    }
     // Quantos versos a proposta vai ocupar se aceita. Guardado agora porque a
     // marca pode ter sumido quando a resposta chegar.
     const replaces =
@@ -629,6 +731,26 @@
         : action.kind === 'stanza'
           ? Math.max(1, emptyRunFrom(index))
           : 1;
+    return request('line', index, index, replaces, action, () => contextFor(index, action));
+  }
+
+  function runThemeAction(): Promise<void> {
+    const action = temaAcao;
+    if (action === null) return Promise.resolve();
+    const { insertAt, replaces } = themeSlot();
+    return request('theme', insertAt, insertAt, replaces, action, () =>
+      blockContext(action, insertAt, replaces, 'theme', ''),
+    );
+  }
+
+  async function request(
+    anchor: 'line' | 'theme',
+    index: number,
+    insertAt: number,
+    replaces: number,
+    action: Action,
+    context: () => ProposalContext,
+  ): Promise<void> {
     const provider = providerById(aiConfig.providerId);
     if (provider === null || !aiReady) {
       screen = 'ajustes';
@@ -643,12 +765,12 @@
     /** Esta chamada ainda é a que a tela espera? */
     const atual = (): boolean => inFlight === controller;
 
-    proposal = { index, action, loading: true, error: null, candidates: [], raw: null, sent: null, stage: 'escrevendo', replaces, usage: null };
+    proposal = { anchor, index, insertAt, action, loading: true, error: null, candidates: [], raw: null, sent: null, stage: 'escrevendo', replaces, usage: null };
     try {
       const dicionario = await getLexicon();
       const candidates = await propose(
         (request) => provider.complete(aiConfig, request),
-        contextFor(index, action),
+        context(),
         {
           tools: provider.supportsTools,
           signal: controller.signal,
@@ -694,9 +816,9 @@
       kind: 'verse' as LineKind,
       source: 'ai' as const,
     }));
-    lines.splice(current.index, current.replaces, ...novas);
+    lines.splice(current.insertAt, current.replaces, ...novas);
     lineRange = null;
-    const ultima = current.index + novas.length - 1;
+    const ultima = current.insertAt + novas.length - 1;
     goTo(ultima, (lines[ultima]?.text ?? '').length);
     dismissProposal();
   }
@@ -933,9 +1055,38 @@
                 rows="2"
                 placeholder="o que você diria a alguém que fosse ajudar a escrevê-lo"
                 bind:value={tema}
-                onblur={() => { if (tema.trim() === '') temaAberto = false; }}
+                onfocus={() => (temaFocado = true)}
+                onblur={() => {
+                  temaFocado = false;
+                  if (tema.trim() === '') temaAberto = false;
+                }}
               ></textarea>
             </label>
+            <!-- O tema é o ponto de partida, e a qualquer momento: vazio, pede o
+                 poema; pela metade, o que falta; pronto, a estrofe seguinte. -->
+            {#if temaFocado && temaAcao !== null && proposal?.anchor !== 'theme'}
+              <button
+                class="tema-pedir"
+                onmousedown={(event) => event.preventDefault()}
+                onclick={() => void runThemeAction()}>{temaAcao.label}</button>
+            {/if}
+            {#if proposal?.anchor === 'theme'}
+              <div class="tema-propostas">
+                <Propostas
+                  label={proposal.action.label}
+                  loading={proposal.loading}
+                  error={proposal.error}
+                  candidates={proposal.candidates}
+                  raw={proposal.raw}
+                  sent={proposal.sent}
+                  stage={proposal.stage}
+                  usage={proposal.usage}
+                  onaccept={acceptCandidate}
+                  ondismiss={dismissProposal}
+                  onretry={() => void runThemeAction()}
+                />
+              </div>
+            {/if}
           {:else}
             <button class="tema-abrir" onclick={() => (temaAberto = true)}>+ sobre o que é este poema</button>
           {/if}
@@ -960,10 +1111,10 @@
               onfocused={() => (pendingFocus = null)}
               onfocus={(i) => (cursorLine = i)}
               onselection={(i, start, end) => (selection = { index: i, start, end })}
-              action={index === (rangeSpan?.from ?? cursorLine) ? actionAt(index) : null}
+              action={!temaFocado && index === (rangeSpan?.from ?? cursorLine) ? actionAt(index) : null}
               inRange={inRange(index)}
               onextend={extendRange}
-              proposal={proposal?.index === index ? proposal : null}
+              proposal={proposal?.anchor === 'line' && proposal.index === index ? proposal : null}
               onaction={runAction}
               onaccept={acceptCandidate}
               ondismiss={dismissProposal}
@@ -1162,6 +1313,30 @@
 
   .tema-abrir:hover {
     color: var(--ink);
+  }
+
+  /* Mesmo desenho do pedido da linha: é a mesma espécie de gesto. Sobe para
+     encostar no campo, que já reserva o espaço abaixo de si. */
+  .tema-pedir {
+    display: block;
+    font: inherit;
+    font-size: 11px;
+    margin: -18px 0 26px 14px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink3);
+    cursor: pointer;
+  }
+
+  .tema-pedir:hover {
+    border-color: var(--elis);
+    color: var(--elis);
+  }
+
+  .tema-propostas {
+    margin: -26px 0 26px;
   }
 
   .tema-rotulo {

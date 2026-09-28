@@ -24,12 +24,15 @@ export type ActionId =
   | 'vary-fragment'
   | 'vary-passage'
   | 'write-stanza'
-  | 'address-note';
+  | 'address-note'
+  | 'write-poem';
 
 export interface Action {
   readonly id: ActionId;
   readonly label: string;
   readonly kind: ProposalKind;
+  /** Versos pedidos, quando a ação é um bloco a partir do tema ou do comentário. `0` = livre. */
+  readonly verses?: number;
 }
 
 export interface LineSituation {
@@ -44,6 +47,8 @@ export interface LineSituation {
   readonly rhymeTarget: string | null;
   /** Linhas de verso vazias contíguas a partir desta, esta incluída. */
   readonly emptyRun: number;
+  /** Nenhum verso escrito no poema ainda. */
+  readonly poemEmpty?: boolean;
 }
 
 function forma(spec: MetricSpec, rhymeTarget: string | null): string {
@@ -72,6 +77,11 @@ export function actionFor(situation: LineSituation): Action | null {
 
   if (lineKind === 'note') {
     if (text.trim() === '') return null;
+    // Comentário num poema sem verso nenhum não pede um verso: pede o poema.
+    // Um verso solto ali não teria vizinho com quem conversar.
+    if (situation.poemEmpty === true) {
+      return { id: 'write-poem', label: 'escrever o poema a partir do comentário', kind: 'stanza' };
+    }
     return { id: 'address-note', label: 'atender ao comentário', kind: 'verse' };
   }
 
@@ -115,4 +125,53 @@ export function actionFor(situation: LineSituation): Action | null {
     default:
       return { id: 'vary-verse', label: 'propor variações', kind: 'verse' };
   }
+}
+
+export interface ThemeSituation {
+  readonly theme: string;
+  /** Versos já escritos no poema. */
+  readonly written: number;
+  /** Versos que a forma prevê. `0` = sem limite. */
+  readonly declared: number;
+  readonly scheme: string;
+  readonly spec: MetricSpec;
+}
+
+/**
+ * Tamanho de uma estrofe quando a forma não diz. O esquema de rima é a melhor
+ * pista que há — ABAB é uma quadra, AABB também —, mas um esquema de soneto
+ * inteiro não é estrofe, e aí vale a quadra.
+ */
+function stanzaSize(scheme: string): number {
+  return scheme.length >= 2 && scheme.length <= 8 ? scheme.length : 4;
+}
+
+/**
+ * A ação do campo de tema, oferecida a qualquer momento enquanto ele está em
+ * foco. O tema é o ponto de partida; o que se pede a partir dele depende do
+ * que já está escrito:
+ *
+ * - nada escrito: o poema inteiro, do tamanho que a forma declarou;
+ * - poema pela metade, com tamanho declarado: os versos que faltam;
+ * - o resto: a estrofe seguinte.
+ */
+export function themeAction(situation: ThemeSituation): Action | null {
+  const { theme, written, declared, scheme, spec } = situation;
+  if (theme.trim() === '') return null;
+
+  const medida = spec.syllables > 0 ? ` · ${spec.syllables} sílabas` : '';
+
+  if (declared > 0 && written < declared) {
+    const faltam = declared - written;
+    const label =
+      written === 0
+        ? `escrever o poema · ${declared} versos${medida}`
+        : `escrever ${faltam === 1 ? 'o verso que falta' : `os ${faltam} versos que faltam`}${medida}`;
+    return { id: 'write-poem', label, kind: 'stanza', verses: faltam };
+  }
+  if (written === 0) {
+    return { id: 'write-poem', label: `escrever o poema${medida}`, kind: 'stanza', verses: 0 };
+  }
+  const n = stanzaSize(scheme);
+  return { id: 'write-poem', label: `escrever estrofe · ${n} versos${medida}`, kind: 'stanza', verses: n };
 }

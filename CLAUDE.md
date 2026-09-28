@@ -96,13 +96,29 @@ quantas sílabas o trecho ocupa hoje. Sem esses dois cuidados o modelo propõe d
 tamanho errado, a régua reprova tudo e ele desiste.
 
 Linha do tipo `note` é o canal de instrução: o autor escreve um comentário no
-meio do poema e pede para atendê-lo.
+meio do poema e pede para atendê-lo. Num poema ainda sem verso, o comentário
+pede o poema inteiro, não um verso solto.
+
+**O tema também é ponto de partida, a qualquer momento.** Com o campo do tema em
+foco, ele oferece a sua ação (e a da linha some — uma ação por vez): nada
+escrito, o poema inteiro do tamanho declarado; pela metade, os versos que
+faltam; pronto ou sem tamanho, a estrofe seguinte, do tamanho do esquema de
+rima quando ele cabe numa estrofe, senão uma quadra. O bloco entra depois do
+último verso escrito.
+
+Bloco inteiro muda o que "rima" quer dizer na medição. Proposta de verso tem
+alvo único, tirado do poema; num bloco o verso 4 rima com o 1, que veio na
+mesma resposta. `lib/ai/esquema.ts` faz essa conta — alvo é o verso anterior
+mais próximo de mesma letra, dentro do bloco ou no que já estava escrito — e a
+régua e o juiz usam a mesma função, para um não aprovar o que o outro recusa.
+O bloco vem sem linha em branco entre estrofes: no editor, linha vazia de verso
+ocupa uma letra do esquema.
 
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 86 testes no app cobrem o laço de
-proposta, as ações contextuais, os limites da importação, a validação do
+implementados, BYOK com chave em IndexedDB. 103 testes no app cobrem o laço de
+proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 
 Camadas 2, 3 e 4 prontas em `packages/engine`; 289 testes, entre o corpus

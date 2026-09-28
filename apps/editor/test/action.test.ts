@@ -1,7 +1,7 @@
 import { assess, createAnalyzer, FORMAS, ptBR, scanVerse, type MetricSpec } from '@escandir/engine';
 import { describe, expect, it } from 'vitest';
 
-import { actionFor, type LineSituation } from '../src/lib/ai/action.js';
+import { actionFor, themeAction, type LineSituation } from '../src/lib/ai/action.js';
 
 const analyzer = createAnalyzer(ptBR);
 
@@ -78,6 +78,47 @@ describe('a ação se nomeia pelo que falta', () => {
   it('em verso livre o rótulo não promete medida que não existe', () => {
     const livre: MetricSpec = { syllables: 0, requiredStresses: [] };
     expect(actionFor(situacao({ spec: livre }))?.label).toBe('escrever verso');
+  });
+});
+
+describe('a partir do tema, a qualquer momento', () => {
+  const base = { theme: 'o cais vazio no fim da tarde', scheme: 'ABBAABBACDCDCD', spec: FORMAS.heroico };
+
+  it('sem tema, não há o que oferecer', () => {
+    expect(themeAction({ ...base, theme: '  ', written: 0, declared: 14 })).toBeNull();
+  });
+
+  it('nada escrito: o poema inteiro, do tamanho declarado', () => {
+    const action = themeAction({ ...base, written: 0, declared: 14 });
+    expect(action?.id).toBe('write-poem');
+    expect(action?.label).toBe('escrever o poema · 14 versos · 10 sílabas');
+    expect(action?.verses).toBe(14);
+  });
+
+  it('pela metade: os versos que faltam', () => {
+    const action = themeAction({ ...base, written: 8, declared: 14 });
+    expect(action?.label).toBe('escrever os 6 versos que faltam · 10 sílabas');
+    expect(action?.verses).toBe(6);
+  });
+
+  it('sem tamanho declarado e já começado: a estrofe seguinte, do tamanho do esquema', () => {
+    const action = themeAction({ ...base, scheme: 'ABAB', written: 4, declared: 0 });
+    expect(action?.label).toBe('escrever estrofe · 4 versos · 10 sílabas');
+    expect(action?.verses).toBe(4);
+  });
+
+  it('esquema comprido demais para ser estrofe vale uma quadra', () => {
+    expect(themeAction({ ...base, written: 14, declared: 14 })?.verses).toBe(4);
+  });
+
+  it('nada escrito e sem tamanho: o modelo escolhe a extensão', () => {
+    expect(themeAction({ ...base, written: 0, declared: 0 })?.verses).toBe(0);
+  });
+
+  it('comentário num poema vazio pede o poema, não um verso', () => {
+    const action = actionFor(situacao({ lineKind: 'note', text: 'um soneto sobre o cais', poemEmpty: true }));
+    expect(action?.id).toBe('write-poem');
+    expect(action?.kind).toBe('stanza');
   });
 });
 

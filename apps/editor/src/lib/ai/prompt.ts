@@ -12,7 +12,9 @@
  * continua sendo o motor, que mede tudo de novo depois.
  */
 
-import type { MetricSpec, Rhyme } from '@escandir/engine';
+import { NO_RHYME, type MetricSpec, type Rhyme } from '@escandir/engine';
+
+import { describeScheme, schemeChecks, type SchemeLead } from './esquema.js';
 
 export type ProposalKind = 'verse' | 'stanza';
 
@@ -53,7 +55,27 @@ export type Task =
   /** Um trecho de vários versos já escritos, a refazer inteiro. */
   | { readonly kind: 'passage'; readonly original: readonly string[] }
   /** Comentário do autor a ser atendido. */
-  | { readonly kind: 'note'; readonly instruction: string };
+  | { readonly kind: 'note'; readonly instruction: string }
+  /**
+   * Um bloco de versos a partir do tema ou de um comentário: a estrofe seguinte
+   * do poema, ou o poema inteiro quando ainda não há verso escrito.
+   *
+   * Diferente de `stanza`, que preenche linhas vazias no meio do texto com a
+   * rima dos vizinhos, aqui o esquema de rima é cobrado **dentro** do bloco —
+   * o verso 4 rima com o 1, que veio na mesma resposta.
+   */
+  | {
+      readonly kind: 'poem';
+      readonly source: 'theme' | 'note';
+      /** O texto do comentário. Vazio quando a fonte é o tema, que já vai no pedido. */
+      readonly instruction: string;
+      /** Versos pedidos. `0` = o modelo escolhe a extensão. */
+      readonly verses: number;
+      /** Esquema de rima do poema, a partir do primeiro verso dele. Vazio = sem rima. */
+      readonly scheme: string;
+      /** Versos já escritos antes do bloco, que o esquema continua. */
+      readonly lead: SchemeLead;
+    };
 
 export interface ProposalContext {
   readonly kind: ProposalKind;
@@ -127,6 +149,14 @@ function formaLinhas(spec: MetricSpec): string[] {
  */
 function unidadeDaResposta(context: ProposalContext): { quantos: string; exemplo: string[] } {
   const n = context.candidates;
+  if (context.task.kind === 'poem') {
+    const extensao =
+      context.task.verses > 0 ? `de ${context.task.verses} versos cada` : 'da extensão que você escolher';
+    return {
+      quantos: `${n} blocos inteiros, ${extensao}, um verso por linha, sem linha em branco entre estrofes`,
+      exemplo: ['e nada mais se move no lugar', 'a tarde desce lenta sobre o mar'],
+    };
+  }
   if (context.kind === 'stanza') {
     const versos = context.task.kind === 'passage' ? context.task.original.length : context.verses;
     return {
@@ -280,7 +310,62 @@ function tarefaLinhas(task: Task): string[] {
         `O autor escreveu este pedido no meio do poema: "${task.instruction}"`,
         'Escreva o verso que atende a ele.',
       ];
+
+    case 'poem':
+      return tarefaPoema(task);
   }
+}
+
+type PoemTask = Extract<Task, { kind: 'poem' }>;
+
+function tarefaPoema(task: PoemTask): string[] {
+  const inteiro = task.lead.texts.length === 0;
+  const extensao =
+    task.verses > 0
+      ? `${task.verses} versos`
+      : 'a extensão que o assunto pedir, entre 8 e 16 versos';
+  const partes: string[] = [];
+
+  if (task.source === 'note') {
+    partes.push(`O autor escreveu este pedido no poema: "${task.instruction}"`);
+  } else {
+    partes.push('O ponto de partida é o que o autor disse acima sobre o poema.');
+  }
+  partes.push(
+    inteiro
+      ? `Escreva o poema inteiro: ${extensao}.`
+      : `Escreva a estrofe seguinte do poema, continuando o que já está escrito: ${extensao}.`,
+    'Cada proposta é um bloco completo, que funciona sozinho e se lê de ponta a',
+    'ponta; as propostas são alternativas entre si, não partes umas das outras.',
+    'Um verso por linha. Não deixe linha em branco entre estrofes: no editor, cada',
+    'linha é um verso e ocupa uma letra do esquema de rima.',
+  );
+
+  const verses = task.verses > 0 ? task.verses : task.scheme.length;
+  const esquema = describeScheme(task.scheme, verses, task.lead.texts.length);
+  if (esquema.length > 0) {
+    partes.push('', ...esquema);
+    if (task.verses <= 0) partes.push('(o esquema cicla: depois do último, recomeça do primeiro)');
+    // Rima com o que já estava escrito: o modelo não tem como adivinhar qual
+    // verso anterior carrega a letra, então diz-se a terminação de cada um.
+    const vazios = Array.from({ length: verses }, () => '');
+    const presos = schemeChecks(
+      vazios,
+      vazios.map(() => NO_RHYME),
+      task.scheme,
+      task.lead,
+    ).flatMap((check, i) => {
+      if (check.ref === null || check.ref >= 0 || check.target === null) return [];
+      const origem = task.lead.texts[task.lead.texts.length + check.ref] ?? '';
+      return [`  o ${i + 1}º verso rima em "-${check.target.tail}", com "${origem}"`];
+    });
+    if (presos.length > 0) partes.push('Rimas que vêm do que já está escrito:', ...presos);
+    partes.push(
+      'Versos de mesma letra rimam entre si por som, da vogal tônica ao fim. A',
+      'mesma palavra repetida não é rima.',
+    );
+  }
+  return partes;
 }
 
 export function buildUser(context: ProposalContext): string {
