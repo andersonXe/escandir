@@ -4,19 +4,19 @@
  * A primeira versão deste arquivo explicava as regras de escansão e pedia que
  * o modelo contasse certo. Não funcionou, e não ia funcionar: contar sílaba
  * poética é justamente o que LLM faz mal, e explicar melhor não conserta uma
- * limitação de percepção.
+ * limitação de percepção. O que funciona é a ferramenta `escandir` — o modelo
+ * mede em vez de adivinhar, e o motor mede tudo de novo depois.
  *
- * O que funciona é a ferramenta `escandir` — o modelo mede em vez de adivinhar.
- * O texto abaixo mudou de função: não ensina mais a contar, ensina a **usar a
- * régua**. Quem garante continua sendo o motor, que mede tudo de novo depois.
+ * **Regras no sistema, obra no pedido.** O pedido é dado, não conversa: a obra
+ * inteira em `<obra>` — título, tema, forma, comentários com a posição de cada
+ * um, e o texto medido verso a verso —, e o que se quer em `<pedido>`. Quando
+ * as instruções vinham misturadas ao poema, o poema virava mais um parágrafo
+ * entre parágrafos, e o modelo o considerava pouco.
  *
- * **Nenhum verso de exemplo.** Houve três decassílabos escandidos aqui, e o
- * formato da resposta era ilustrado com versos de verdade. Exemplo é o molde
- * mais forte de um prompt: o modelo levava o assunto e a cadência junto com a
- * contagem, e um poema sobre fábrica recebia como referência um verso sobre o
- * mar. O que calibra agora é o próprio poema, medido linha a linha
- * (`poema.ts`), e a régua sobre os rascunhos do modelo. Regra se enuncia;
- * formato se mostra com marcadores.
+ * **Nenhum exemplo.** Houve três decassílabos escandidos aqui, e o formato da
+ * resposta era ilustrado com versos de verdade. Exemplo é o molde mais forte
+ * de um prompt: o modelo levava o assunto e a cadência junto com a contagem.
+ * Regra se enuncia; formato se mostra com marcadores.
  */
 
 import { type MetricSpec, NO_RHYME, type Rhyme } from '@escandir/engine';
@@ -91,9 +91,8 @@ export interface ProposalContext {
   /** Terminação que a rima precisa casar, ex.: `ar`. `null` = livre. */
   readonly rhymeTarget: Rhyme | null;
   /**
-   * As linhas antes e depois do ponto pedido, já medidas. Nota e título vão no
-   * lugar onde estão: nota é pedido preso a um ponto do texto, e é ali que ela
-   * se lê.
+   * As linhas antes e depois do ponto pedido, já medidas. Juntas são a obra
+   * inteira, menos o que a proposta vai substituir.
    */
   readonly before: readonly PoemLine[];
   readonly after: readonly PoemLine[];
@@ -111,6 +110,12 @@ export interface ProposalContext {
   readonly candidates: number;
   /** Medidas erradas da tentativa anterior, para a segunda chamada. */
   readonly rejected?: readonly string[];
+  /**
+   * O que o autor já viu neste ponto, nesta sessão, e não aceitou. Pedir de
+   * novo é dizer "outra coisa"; sem isto o pedido saía idêntico e a resposta
+   * também.
+   */
+  readonly alreadyShown?: readonly string[];
   /** Palavras que já rimam nesta posição. Repeti-las não é rimar. */
   readonly usedRhymeWords: readonly string[];
   /** A ferramenta está disponível nesta chamada. */
@@ -119,22 +124,50 @@ export interface ProposalContext {
 
 export const SEPARATOR = '---';
 
-const REGRAS = `O que torna a contagem diferente da intuição:
+const COMO_LER = `O PEDIDO chega em duas partes:
+- <obra>: o poema do autor inteiro, como dado — título, tema, forma, os
+  comentários dele e o texto medido verso a verso.
+- <pedido>: o ponto do texto onde você vai propor, e o que se quer ali.`;
 
+const A_OBRA = `A OBRA É A REFERÊNCIA, NÃO VOCÊ
+- Leia a obra inteira antes de escrever. O que você propõe vai morar dentro
+  dela e tem de soar como o resto: o mesmo vocabulário, o mesmo registro, as
+  mesmas imagens, a mesma sintaxe. Continue a voz do autor; não estreie a sua.
+- Os comentários do autor são instruções dele para você. Os que estão junto
+  ao ponto pedido valem para TODAS as propostas. Os outros dizem o que ele quer
+  do poema como um todo. Nenhuma proposta pode contrariar um comentário.
+- O tema é o chão do poema. As coisas concretas que ele nomeia — objetos,
+  lugares, sons, de onde se olha — são o material: USE-AS, com a mesma palavra
+  que o autor usou, não com a categoria a que ela pertence nem com um termo
+  mais vago. Prefira o particular ao geral. Não parafraseie o tema nem o
+  explique em verso.
+- Teste cada verso antes de entregar: ele caberia em qualquer outro poema?
+  Então não está usando esta obra.`;
+
+const VARIEDADE = `PROPOSTAS DIFERENTES DE VERDADE
+- O autor escolhe entre as propostas. Se elas se parecem, ele não tem escolha.
+- Antes de rascunhar, dê a cada proposta um ponto de partida diferente, tirado
+  da obra: outra imagem do texto, outro elemento do tema ou dos comentários,
+  outro ângulo de quem fala, outra construção de frase.
+- Cada proposta termina numa palavra diferente.
+- Se o pedido traz propostas já mostradas ao autor, ele as viu e pediu de novo:
+  quer outra coisa. Não as repita, não as parafraseie, não reuse as palavras
+  finais delas.`;
+
+const REGRAS = `A MEDIDA
 1. Elisão entre palavras é a REGRA, não a exceção. Vogal final átona funde
    com vogal inicial seguinte, e as duas viram uma sílaba só.
 2. A contagem PARA NA ÚLTIMA TÔNICA. O que vem depois existe e não conta.
    Por isso verso terminado em palavra grave mede uma sílaba a menos do que
    se fala, e em palavra esdrúxula, duas.
-3. Sílaba poética não é sílaba gramatical.`;
+3. Sílaba poética não é sílaba gramatical.
+4. Sintaxe de quem fala português, não de quem precisa fechar a conta. Verso
+   que só fecha com inversão forçada não serve.`;
 
 /**
  * O que se espera por proposta. Precisa casar com a TAREFA: quando o pedido
  * era de trecho e o formato dizia 'versos', o modelo devolveu quatro
  * separadores vazios — entendeu o formato, não soube o que pôr dentro.
- *
- * O molde vem em marcadores, não em versos: verso posto aqui como ilustração
- * era copiado junto com o formato.
  */
 function unidadeDaResposta(context: ProposalContext): { quantos: string; molde: readonly string[] } {
   const n = context.candidates;
@@ -167,6 +200,12 @@ export function buildSystem(context: ProposalContext): string {
     'Você propõe versos para um poeta brasileiro que está escrevendo. Ele decide;',
     'você nunca decide por ele. Proponha alternativas, não a resposta certa.',
     '',
+    COMO_LER,
+    '',
+    A_OBRA,
+    '',
+    VARIEDADE,
+    '',
     REGRAS,
     '',
   ];
@@ -174,13 +213,12 @@ export function buildSystem(context: ProposalContext): string {
   if (context.hasTool) {
     partes.push(
       'MÉTODO — siga nesta ordem, sempre:',
-      '',
-      '1. Rascunhe mais versos do que vai entregar (uns 8).',
-      '2. Chame a ferramenta `escandir` com todos eles de uma vez.',
-      '3. Leia a medida. Onde não fechou, reescreva mexendo no número de sílabas',
+      '1. Escolha os pontos de partida, um por proposta.',
+      '2. Rascunhe mais versos do que vai entregar (uns 8).',
+      '3. Chame a ferramenta `escandir` com todos eles de uma vez.',
+      '4. Leia a medida. Onde não fechou, reescreva mexendo no número de sílabas',
       '   — troque uma palavra por outra mais curta ou mais longa, mude a ordem —',
-      '   e chame `escandir` de novo.',
-      '4. Repita até ter os que precisa fechando a forma.',
+      '   e chame `escandir` de novo. Ajuste sem perder o ponto de partida.',
       '5. Só então responda, com os que fecharam.',
       '',
       'Não confie na sua contagem: ela erra. A ferramenta não erra. Chamá-la é',
@@ -208,17 +246,6 @@ export function buildSystem(context: ProposalContext): string {
     ...molde,
     SEPARATOR,
     ...molde,
-    '',
-    'SOBRE O QUE PROPOR:',
-    '- O poema do autor, que vai no pedido, é a única referência de voz: siga o',
-    '  vocabulário, o registro e as imagens do que já está escrito. Você está',
-    '  continuando a voz dele, não estreando a sua.',
-    '- Evite rima previsível e imagem gasta.',
-    '- Prefira concreto a abstrato: coisa que se vê, se toca, se ouve.',
-    '- Varie entre as propostas. Alternativas que se parecem não são alternativas:',
-    '  mude a imagem, não só as palavras.',
-    '- Sintaxe de quem fala português, não de quem precisa fechar a conta.',
-    '  Verso que só funciona com inversão forçada não serve.',
   );
 
   return partes.join('\n');
@@ -316,7 +343,7 @@ function tarefaPoema(task: PoemTask): string[] {
   if (task.source === 'note') {
     partes.push(`O autor escreveu este pedido no poema: "${task.instruction}"`);
   } else {
-    partes.push('O ponto de partida é o que o autor disse acima sobre o poema.');
+    partes.push('O ponto de partida é o tema, em <obra>.');
   }
   partes.push(
     inteiro
@@ -369,16 +396,24 @@ function versosDoPedido(context: ProposalContext): number {
   return context.kind === 'stanza' ? context.verses : 1;
 }
 
+/** Texto de várias linhas, recuado para caber sob uma chave. */
+function recuado(texto: string, recuo = '  '): string[] {
+  return texto
+    .trim()
+    .split(/\r?\n/)
+    .map((linha) => `${recuo}${linha.trim()}`);
+}
+
 /**
- * Uma linha do poema como dado: número do verso, letra do esquema, medida e
+ * Uma linha do texto como dado: número do verso, letra do esquema, medida e
  * terminação. É o que o sistema já sabe sobre cada verso, e é o que deixa o
- * modelo ver a forma do poema **deste** autor em vez de uma forma de exemplo.
+ * modelo ver a forma do poema **deste** autor.
  */
 function linhaDoPoema(line: PoemLine, numero: number): string {
-  if (line.kind === 'heading') return `     título de seção: ${line.text}`;
-  if (line.kind === 'note') return `     nota do autor: ${line.text}`;
+  if (line.kind === 'heading') return `       # ${line.text}`;
+  if (line.kind === 'note') return `       (comentário do autor: ${line.text})`;
   const letra = line.letter === '' ? ' ' : line.letter;
-  const rotulo = `${String(numero).padStart(3)} ${letra}`;
+  const rotulo = `  ${String(numero).padStart(3)} ${letra}`;
   if (line.text.trim() === '') return `${rotulo} [vazio]`;
   const medida =
     line.count === null
@@ -388,14 +423,47 @@ function linhaDoPoema(line: PoemLine, numero: number): string {
   return `${rotulo} [${medida}${rima}] ${line.text}`;
 }
 
-function textoLinhas(context: ProposalContext): string[] {
-  const saida: string[] = [];
+interface Comentario {
+  readonly texto: string;
+  readonly lugar: string;
+  /** Está colado ao ponto pedido, sem verso escrito no meio. */
+  readonly junto: boolean;
+}
+
+interface Leitura {
+  readonly texto: string[];
+  readonly comentarios: Comentario[];
+  /** "verso 3, letra B" ou "versos 5 a 8". */
+  readonly onde: string;
+}
+
+/**
+ * Percorre a obra uma vez e tira dela o texto numerado, os comentários com o
+ * lugar de cada um, e onde fica o ponto pedido.
+ *
+ * Comentário "junto" ao ponto é o que não tem verso escrito entre ele e o
+ * ponto: é o que o autor deixou ali para ser atendido ali.
+ */
+function lerObra(context: ProposalContext): Leitura {
+  const texto: string[] = [];
+  const comentarios: Comentario[] = [];
   let numero = 0;
-  const escreve = (line: PoemLine): void => {
+
+  const ultimoEscrito = context.before.reduce(
+    (ultimo, line, i) => (line.kind === 'verse' && line.text.trim() !== '' ? i : ultimo),
+    -1,
+  );
+  const primeiroEscrito = context.after.findIndex((line) => line.kind === 'verse' && line.text.trim() !== '');
+
+  const lugar = (): string => (numero === 0 ? 'no começo do poema' : `depois do verso ${numero}`);
+
+  context.before.forEach((line, i) => {
     if (line.kind === 'verse') numero += 1;
-    saida.push(linhaDoPoema(line, numero));
-  };
-  context.before.forEach(escreve);
+    if (line.kind === 'note' && line.text.trim() !== '') {
+      comentarios.push({ texto: line.text.trim(), lugar: lugar(), junto: i > ultimoEscrito });
+    }
+    texto.push(linhaDoPoema(line, numero));
+  });
 
   const primeiro = numero + 1;
   const ocupa = versosDoPedido(context);
@@ -405,15 +473,23 @@ function textoLinhas(context: ProposalContext): string[] {
         ? `versos ${primeiro} a ${primeiro + ocupa - 1}`
         : `a partir do verso ${primeiro}`
       : `verso ${primeiro}${context.scheme === '' ? '' : `, letra ${letterAt(context.scheme, primeiro - 1)}`}`;
-  saida.push(
+  texto.push(
     context.kind === 'stanza'
-      ? `>>> a estrofe pedida entra aqui <<< (${onde})`
-      : `>>> o verso pedido entra aqui <<< (${onde})`,
+      ? `  >>> a estrofe pedida entra aqui <<< (${onde})`
+      : `  >>> o verso pedido entra aqui <<< (${onde})`,
   );
   numero += Math.max(ocupa, 0);
 
-  context.after.forEach(escreve);
-  return saida;
+  context.after.forEach((line, i) => {
+    if (line.kind === 'verse') numero += 1;
+    if (line.kind === 'note' && line.text.trim() !== '') {
+      const junto = primeiroEscrito === -1 || i < primeiroEscrito;
+      comentarios.push({ texto: line.text.trim(), lugar: lugar(), junto });
+    }
+    texto.push(linhaDoPoema(line, numero));
+  });
+
+  return { texto, comentarios, onde };
 }
 
 /** A forma declarada, campo por campo — as quatro coisas independentes. */
@@ -428,7 +504,11 @@ function formaLinhas(context: ProposalContext): string[] {
   if (spec.syllables > 0 && spec.requiredStresses.length > 0) {
     linhas.push(`tônicas obrigatórias: ${spec.requiredStresses.map((p) => `${p}ª`).join(', ')}`);
   }
-  linhas.push(context.scheme === '' ? 'esquema de rima: sem rima fixa' : `esquema de rima: ${context.scheme}`);
+  linhas.push(
+    context.scheme === ''
+      ? 'esquema de rima: sem rima fixa'
+      : `esquema de rima: ${context.scheme} (a letra de cada verso está no texto)`,
+  );
   const escritos = [...context.before, ...context.after].filter(
     (line) => line.kind === 'verse' && line.text.trim() !== '',
   ).length;
@@ -437,94 +517,86 @@ function formaLinhas(context: ProposalContext): string[] {
       ? `extensão: ${context.declaredVerses} versos, ${escritos} escritos`
       : `extensão: livre, ${escritos} versos escritos`,
   );
-  return linhas;
+  return linhas.map((linha) => `  ${linha}`);
 }
 
-export function buildUser(context: ProposalContext): string {
-  const partes: string[] = [];
+/**
+ * A obra inteira como dado. Nada aqui é instrução: é o que o autor escreveu e
+ * declarou, organizado. As instruções sobre como usá-la estão no sistema.
+ */
+function obraLinhas(context: ProposalContext, leitura: Leitura): string[] {
+  const partes: string[] = ['<obra>'];
 
   const titulo = context.title.trim();
-  if (titulo !== '' && titulo.toLowerCase() !== SEM_TITULO) {
-    partes.push('TÍTULO', titulo, '');
-  }
+  if (titulo !== '' && titulo.toLowerCase() !== SEM_TITULO) partes.push(`título: ${titulo}`);
 
-  /*
-   * O tema vem antes da forma, porque é o que enquadra tudo o mais.
-   *
-   * A primeira versão desta seção dizia "não repita estes termos", temendo que
-   * o modelo encaixasse as palavras do tema à força. Saiu o contrário do
-   * esperado: ele evitou justamente as coisas concretas que carregavam o
-   * poema e entregou atmosfera genérica. O que se evita é a paráfrase, não o
-   * material.
-   *
-   * A instrução já ilustrou isso com um par de palavras inventado. Saiu pelo
-   * mesmo motivo dos versos de exemplo: a palavra do exemplo aparecia nos
-   * poemas. A regra agora aponta para o tema do próprio autor, que está logo
-   * acima dela.
-   */
-  if (context.theme.trim() !== '') {
+  // O tema vem antes da forma: é o que enquadra o resto.
+  if (context.theme.trim() !== '') partes.push('tema, nas palavras do autor:', ...recuado(context.theme));
+
+  partes.push('forma:', ...formaLinhas(context));
+
+  partes.push(
+    leitura.comentarios.length === 0 ? 'comentários do autor: nenhum' : 'comentários do autor:',
+    ...leitura.comentarios.map((c) => `  - ${c.lugar}: ${c.texto}`),
+  );
+
+  partes.push(
+    'texto — número do verso, letra do esquema, [medida pelo motor · terminação da rima]:',
+    ...leitura.texto,
+    '</obra>',
+  );
+  return partes;
+}
+
+function pedidoLinhas(context: ProposalContext, leitura: Leitura): string[] {
+  const partes: string[] = ['<pedido>', `onde: ${leitura.onde}`, 'tarefa:'];
+  partes.push(...tarefaLinhas(context.task).map((linha) => (linha === '' ? '' : `  ${linha}`)));
+
+  const junto = leitura.comentarios.filter((c) => c.junto);
+  if (junto.length > 0) {
     partes.push(
-      'DO QUE O POEMA TRATA — nas palavras do autor',
-      context.theme.trim(),
-      '',
-      'As coisas concretas nomeadas aí — objetos, lugares, sons, de onde se olha —',
-      'são o material do poema. USE-AS. O que não se faz é parafrasear o tema nem',
-      'explicá-lo em verso.',
-      '',
-      'Prefira sempre o particular ao geral: o que o tema nomeia, o verso nomeia',
-      'com a mesma palavra, não com a categoria a que ela pertence nem com um',
-      'termo mais vago. Trocar o específico pelo genérico é perder o poema.',
-      '',
-      'Teste cada verso antes de entregar: ele caberia em qualquer outro poema?',
-      'Então não está usando o tema.',
-      '',
+      'comentários do autor junto a este ponto — atenda a eles em TODAS as propostas:',
+      ...junto.map((c) => `  - ${c.texto}`),
     );
   }
-
-  partes.push('FORMA', ...formaLinhas(context));
 
   if (context.rhymeTarget !== null && context.rhymeTarget.tail !== '') {
     partes.push(
-      '',
-      'RIMA PEDIDA',
-      `O verso pedido precisa terminar rimando em "-${context.rhymeTarget.tail}".`,
-      'A rima vai da vogal tônica até o fim do verso, então a terminação inteira',
-      'precisa bater, não só a última letra. A comparação é por som, não por',
-      'letra: grafia diferente com o mesmo som serve.',
-      ...(context.usedRhymeWords.length > 0
-        ? [
-            `NÃO termine com estas palavras, que o poema já usou nesta rima: ${context.usedRhymeWords.join(', ')}.`,
-            'Palavra rimando com ela mesma não é rima — é repetição, e o verso é recusado.',
-          ]
-        : []),
+      `rima: termina rimando em "-${context.rhymeTarget.tail}", por som, da vogal tônica até o fim`,
+      '  (grafia diferente com o mesmo som serve; só a última letra não basta)',
     );
+    if (context.usedRhymeWords.length > 0) {
+      partes.push(
+        `  NÃO termine com: ${context.usedRhymeWords.join(', ')} — o poema já rima com elas aqui,`,
+        '  e palavra rimando com ela mesma é repetição: o verso é recusado.',
+      );
+    }
   }
 
-  if (context.before.length > 0 || context.after.length > 0) {
+  const mostrados = context.alreadyShown ?? [];
+  if (mostrados.length > 0) {
     partes.push(
-      '',
-      'O POEMA ATÉ AQUI',
-      'Cada verso vem com o número, a letra do esquema e, entre colchetes, a medida',
-      'que o motor deu e a terminação da rima. É o poema do autor: a voz a seguir.',
-      '',
-      ...textoLinhas(context),
+      'já mostrados ao autor neste ponto, e ele pediu de novo — quer outra coisa:',
+      ...mostrados.map((texto) => `  - ${texto}`),
+      '  Não repita, não parafraseie, não termine nas mesmas palavras. Parta de outro lugar da obra.',
     );
   }
-
-  partes.push('', 'TAREFA');
-  partes.push(...tarefaLinhas(context.task));
 
   if (context.rejected !== undefined && context.rejected.length > 0) {
     partes.push(
-      '',
-      'A TENTATIVA ANTERIOR ERROU A MEDIDA',
-      'Estes não serviram, com o motivo medido pelo motor:',
-      ...context.rejected.map((linha) => `- ${linha}`),
+      'a tentativa anterior errou a medida — estes não serviram, com o motivo medido pelo motor:',
+      ...context.rejected.map((linha) => `  - ${linha}`),
       context.hasTool
-        ? 'Meça com `escandir` antes de responder desta vez.'
-        : 'Conte de novo com cuidado, lembrando das elisões e da regra da última tônica.',
+        ? '  Meça com `escandir` antes de responder desta vez.'
+        : '  Conte de novo com cuidado, lembrando das elisões e da regra da última tônica.',
     );
   }
 
-  return partes.join('\n');
+  partes.push('</pedido>');
+  return partes;
+}
+
+export function buildUser(context: ProposalContext): string {
+  const leitura = lerObra(context);
+  return [...obraLinhas(context, leitura), '', ...pedidoLinhas(context, leitura)].join('\n');
 }

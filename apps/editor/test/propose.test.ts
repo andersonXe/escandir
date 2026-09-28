@@ -228,7 +228,7 @@ describe('o texto do pedido', () => {
     expect(user).toContain('sem o resto do verso em volta');
   });
 
-  it('leva os comentários do autor no lugar onde estão', () => {
+  it('leva os comentários do autor no lugar onde estão, e os junto ao ponto no pedido', () => {
     const linhas = describePoem(
       [
         { kind: 'verse', text: 'a tarde desce lenta sobre o mar' },
@@ -238,9 +238,40 @@ describe('o texto do pedido', () => {
       '',
     );
     const user = buildUser(contexto({ before: linhas }));
-    const nota = user.indexOf('nota do autor: aqui precisa de uma imagem de água');
+    const nota = user.indexOf('(comentário do autor: aqui precisa de uma imagem de água)');
     expect(nota).toBeGreaterThan(user.indexOf('sobre o mar'));
     expect(nota).toBeLessThan(user.indexOf('>>> o verso pedido'));
+    expect(user).toContain('  - depois do verso 1: aqui precisa de uma imagem de água');
+    const pedido = user.slice(user.indexOf('<pedido>'));
+    expect(pedido).toContain('atenda a eles em TODAS as propostas');
+    expect(pedido).toContain('imagem de água');
+  });
+
+  it('comentário longe do ponto fica na obra, mas não é cobrado ali', () => {
+    const linhas = describePoem(
+      [
+        { kind: 'note', text: 'o fim tem de ser seco' },
+        { kind: 'verse', text: 'a tarde desce lenta sobre o mar' },
+      ],
+      FORMAS.heroico,
+      '',
+    );
+    const user = buildUser(contexto({ before: linhas }));
+    expect(user).toContain('  - no começo do poema: o fim tem de ser seco');
+    expect(user.slice(user.indexOf('<pedido>'))).not.toContain('o fim tem de ser seco');
+  });
+
+  it('o mesmo candidato duas vezes aparece uma vez só', () => {
+    const verso = 'a tarde desce lenta sobre o mar';
+    expect(evaluate([[verso], [verso.toUpperCase()], ['e nada mais se move no lugar']], contexto())).toHaveLength(2);
+  });
+
+  it('o que o autor já viu neste ponto vai no pedido, para não voltar', () => {
+    const user = buildUser(contexto({ alreadyShown: ['um verso já visto'] }));
+    const pedido = user.slice(user.indexOf('<pedido>'));
+    expect(pedido).toContain('já mostrados ao autor');
+    expect(pedido).toContain('um verso já visto');
+    expect(buildUser(contexto())).not.toContain('já mostrados');
   });
 });
 
@@ -265,7 +296,7 @@ describe('o poema como dado', () => {
     expect(lugar).toMatchObject({ letter: 'A', count: 10, rhyme: 'ar' });
   });
 
-  it('o pedido leva título, forma campo a campo e o texto medido', () => {
+  it('a obra vai inteira como dado: título, forma, comentários, texto medido', () => {
     const medido = describePoem(doc, FORMAS.heroico, 'ABBA');
     const user = buildUser(
       contexto({
@@ -276,20 +307,24 @@ describe('o poema como dado', () => {
         after: medido.slice(5),
       }),
     );
-    expect(user).toContain('TÍTULO\nPorto');
-    expect(user).toContain('medida: 10 sílabas poéticas');
-    expect(user).toContain('tônicas obrigatórias: 6ª, 10ª');
-    expect(user).toContain('esquema de rima: ABBA');
-    expect(user).toContain('extensão: 4 versos, 3 escritos');
-    expect(user).toContain('  1 A [10 · -ar] a tarde desce lenta sobre o mar');
-    expect(user).toContain('[11, sobra 1 sílaba · -ia]');
-    expect(user).toContain('título de seção: Porto');
-    expect(user).toContain('>>> o verso pedido entra aqui <<< (verso 3, letra B)');
-    expect(user).toContain('  4 A [10 · -ar] e nada mais se move no lugar');
+    const obra = user.slice(user.indexOf('<obra>'), user.indexOf('</obra>'));
+    expect(obra).toContain('título: Porto');
+    expect(obra).toContain('medida: 10 sílabas poéticas');
+    expect(obra).toContain('tônicas obrigatórias: 6ª, 10ª');
+    expect(obra).toContain('esquema de rima: ABBA');
+    expect(obra).toContain('extensão: 4 versos, 3 escritos');
+    expect(obra).toContain('    1 A [10 · -ar] a tarde desce lenta sobre o mar');
+    expect(obra).toContain('[11, sobra 1 sílaba · -ia]');
+    expect(obra).toContain('# Porto');
+    expect(obra).toContain('  - depois do verso 1: mais luz');
+    expect(obra).toContain('>>> o verso pedido entra aqui <<< (verso 3, letra B)');
+    expect(obra).toContain('    4 A [10 · -ar] e nada mais se move no lugar');
+    expect(user.indexOf('</obra>')).toBeLessThan(user.indexOf('<pedido>'));
+    expect(user.slice(user.indexOf('<pedido>'))).toContain('onde: verso 3, letra B');
   });
 
   it('o título padrão não é do autor e não vai', () => {
-    expect(buildUser(contexto({ title: 'sem título' }))).not.toContain('TÍTULO');
+    expect(buildUser(contexto({ title: 'sem título' }))).not.toContain('título:');
   });
 
   it('sem esquema e sem extensão, a forma diz que são livres', () => {
@@ -570,45 +605,32 @@ describe('o tema do poema', () => {
     theme: 'a cidade vista de uma janela alta, ninguém na rua, começo de tarde',
   });
 
-  it('entra no pedido na voz do autor', () => {
+  it('entra na obra na voz do autor, antes da forma', () => {
     const user = buildUser(comTema);
-    expect(user).toContain('DO QUE O POEMA TRATA');
+    expect(user).toContain('tema, nas palavras do autor:');
     expect(user).toContain('janela alta');
+    expect(user.indexOf('tema, nas palavras')).toBeLessThan(user.indexOf('forma:'));
   });
 
-  it('manda usar o material concreto, não evitá-lo', () => {
-    const user = buildUser(comTema);
+  it('as instruções sobre o tema ficam no sistema, não misturadas à obra', () => {
+    const system = buildSystem(comTema);
     // A primeira versão dizia o oposto — 'não repita estes termos' — e o modelo
     // obedeceu, trocando o específico do tema por atmosfera genérica.
-    expect(user).toContain('USE-AS');
-    expect(user).not.toContain('Não repita estes');
+    expect(system).toContain('USE-AS');
+    expect(system).toContain('particular ao geral');
+    expect(system).toContain('mesma palavra');
+    expect(system).toContain('caberia em qualquer outro poema');
+    expect(system).not.toContain('Não repita estes');
   });
 
-  it('opõe o particular ao geral apontando para o tema, sem exemplo inventado', () => {
-    const user = buildUser(comTema);
-    expect(user).toContain('particular ao geral');
-    expect(user).toContain('mesma palavra');
-    expect(user).not.toContain('bonde');
+  it('sem tema, a chave não existe — nada de campo vazio', () => {
+    expect(buildUser(contexto())).not.toContain('tema, nas palavras');
+    expect(buildUser(contexto({ theme: '   ' }))).not.toContain('tema, nas palavras');
   });
 
-  it('dá ao modelo um teste para aplicar sozinho', () => {
-    expect(buildUser(comTema)).toContain('caberia em qualquer outro poema');
-  });
-
-  it('vem antes da forma: é o que enquadra o resto', () => {
-    const user = buildUser(comTema);
-    expect(user.indexOf('DO QUE O POEMA TRATA')).toBeLessThan(user.indexOf('FORMA'));
-  });
-
-  it('sem tema, a seção não existe — nada de cabeçalho vazio', () => {
-    expect(buildUser(contexto())).not.toContain('DO QUE O POEMA TRATA');
-    expect(buildUser(contexto({ theme: '   ' }))).not.toContain('DO QUE O POEMA TRATA');
-  });
-
-  it('é permanente, ao contrário da nota, que é presa a um lugar', () => {
-    const nota = describePoem([{ kind: 'note', text: 'aqui falta uma imagem' }], FORMAS.heroico, '');
-    const user = buildUser(contexto({ theme: 'o porto', before: nota }));
-    expect(user).toContain('DO QUE O POEMA TRATA');
-    expect(user).toContain('nota do autor: aqui falta uma imagem');
+  it('o sistema cobra comentário como instrução e variedade entre propostas', () => {
+    const system = buildSystem(contexto());
+    expect(system).toContain('Os comentários do autor são instruções');
+    expect(system).toContain('Cada proposta termina numa palavra diferente');
   });
 });

@@ -215,6 +215,20 @@
   let ultimaResposta = $state<string | null>(null);
   let ultimoPedido = $state<string | null>(null);
 
+  /**
+   * O que o autor já viu em cada ponto, nesta sessão, e não aceitou.
+   *
+   * Pedir de novo no mesmo lugar é pedir outra coisa. Sem isto o pedido saía
+   * idêntico ao anterior, e a resposta também. Fica só em memória, nunca no
+   * documento: recusar continua sem deixar rastro no poema.
+   */
+  const jaMostrados = new Map<string, string[]>();
+  const MOSTRADOS_MAX = 12;
+
+  function chaveDoPonto(anchor: 'line' | 'theme', index: number, action: Action): string {
+    return `${anchor}:${index}:${action.id}`;
+  }
+
   const FONTES = ['Spectral', 'EB Garamond', 'Literata', 'IBM Plex Sans', 'IBM Plex Mono'];
   const FALLBACK: Record<string, string> = {
     'IBM Plex Sans': 'system-ui, sans-serif',
@@ -298,6 +312,7 @@
     cursorLine = 0;
     dismissProposal();
     history.clear();
+    jaMostrados.clear();
     void setLastOpened(doc.id);
   }
 
@@ -773,9 +788,12 @@
     proposal = { anchor, index, insertAt, action, loading: true, error: null, candidates: [], raw: null, sent: null, stage: 'escrevendo', replaces, usage: null };
     try {
       const dicionario = await getLexicon();
+      const ponto = chaveDoPonto(anchor, index, action);
+      const vistos = jaMostrados.get(ponto) ?? [];
+      const base = context();
       const candidates = await propose(
         (request) => provider.complete(aiConfig, request),
-        context(),
+        vistos.length === 0 ? base : { ...base, alreadyShown: vistos },
         {
           tools: provider.supportsTools,
           signal: controller.signal,
@@ -789,6 +807,10 @@
             if (atual() && proposal !== null) proposal = { ...proposal, usage };
           },
         },
+      );
+      jaMostrados.set(
+        ponto,
+        [...vistos, ...candidates.map((c) => c.lines.map((line) => line.text).join(' / '))].slice(-MOSTRADOS_MAX),
       );
       if (atual() && proposal !== null) {
         inFlight = null;
@@ -822,6 +844,8 @@
       source: 'ai' as const,
     }));
     lines.splice(current.insertAt, current.replaces, ...novas);
+    // O ponto mudou: o que se viu ali antes não diz mais nada sobre ele.
+    jaMostrados.delete(chaveDoPonto(current.anchor, current.index, current.action));
     lineRange = null;
     const ultima = current.insertAt + novas.length - 1;
     goTo(ultima, (lines[ultima]?.text ?? '').length);
@@ -870,6 +894,7 @@
     cursorLine = 0;
     goTo(0, 0);
     history.clear();
+    jaMostrados.clear();
     screen = 'poema';
     void setLastOpened(poemId);
   }

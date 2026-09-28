@@ -27,7 +27,7 @@ import type { Lexicon } from '@escandir/lexicon';
 import { lastWord, schemeChecks } from './esquema.js';
 import { diagnose } from './poema.js';
 import { buildSystem, buildUser, SEPARATOR, type ProposalContext } from './prompt.js';
-import { RIMAS, rimasTool, runRimas } from './rimas.js';
+import { RIMAS, rimasTool, runRimas, wordsOf } from './rimas.js';
 import { runTool, toolsFor, type Frame, type SchemeFrame } from './tools.js';
 import { addUsage, NO_USAGE, type CompletionRequest, type CompletionResult, type Message, type Usage } from './types.js';
 
@@ -244,9 +244,23 @@ export function evaluate(blocks: readonly string[][], context: ProposalContext):
 
   // Os que fecham vêm primeiro. Os outros continuam à mostra, marcados: o autor
   // pode querer justamente o que passa da medida, e esconder seria decidir.
-  return candidates
+  return distintos(candidates)
     .filter((candidate) => pareceProposta(candidate, context.spec))
     .sort((a, b) => Number(b.ok) - Number(a.ok));
+}
+
+/**
+ * O mesmo candidato duas vezes não é alternativa. Acontece entre a primeira e
+ * a segunda tentativa, e às vezes dentro de uma resposta só.
+ */
+export function distintos(candidates: readonly Candidate[]): Candidate[] {
+  const vistos = new Set<string>();
+  return candidates.filter((candidate) => {
+    const chave = candidate.lines.map((line) => line.text.toLowerCase().replace(/\s+/g, ' ').trim()).join('\n');
+    if (vistos.has(chave)) return false;
+    vistos.add(chave);
+    return true;
+  });
 }
 
 /**
@@ -285,6 +299,13 @@ export async function propose(
     const alvo = current.rhymeTarget;
     // O dicionário só entra quando há rima a cumprir: sem alvo, seria ruído.
     const podeRimar = options.lexicon !== undefined && alvo !== null && alvo.sound !== '';
+    // O que o autor escreveu, para a consulta de rimas separar as da obra.
+    const obra = wordsOf([
+      current.title,
+      current.theme,
+      ...current.before.map((line) => line.text),
+      ...current.after.map((line) => line.text),
+    ]);
     const tools = useTools
       ? [
           ...toolsFor(current.spec, current.rhymeTarget, frame, scheme),
@@ -324,7 +345,7 @@ export async function propose(
       for (const call of result.toolCalls) {
         const content =
           call.name === RIMAS && options.lexicon !== undefined && alvo !== null
-            ? await runRimas(call.rawArguments, options.lexicon, alvo, current.usedRhymeWords)
+            ? await runRimas(call.rawArguments, options.lexicon, alvo, current.usedRhymeWords, { obra })
             : runTool(call.name, call.rawArguments, current.spec, current.rhymeTarget, frame, scheme);
         messages.push({ role: 'tool', callId: call.id, name: call.name, content });
       }
@@ -358,6 +379,6 @@ export async function propose(
   }
 
   const second = await ask({ ...context, rejected });
-  const todos = [...second, ...first];
+  const todos = distintos([...second, ...first]);
   return todos.sort((a, b) => Number(b.ok) - Number(a.ok));
 }

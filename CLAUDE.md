@@ -117,7 +117,7 @@ ocupa uma letra do esquema.
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 109 testes no app cobrem o laço de
+implementados, BYOK com chave em IndexedDB. 112 testes no app cobrem o laço de
 proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 
@@ -385,6 +385,35 @@ das palavras dos exemplos antigos.
 A calibragem que os exemplos faziam não se perdeu: a ferramenta `escandir`
 mostra a divisão silábica dos rascunhos do próprio modelo, sobre o assunto
 certo.
+
+## Regras no sistema, obra no pedido
+
+Tirar os exemplos não bastou: as propostas continuaram parecidas entre si e
+pouco presas ao poema. O pedido misturava instrução e obra — o poema virava
+mais um parágrafo entre parágrafos.
+
+Agora a separação é estrita. O sistema tem as regras, e só elas: a obra é a
+referência de voz, comentário é instrução, propostas partem de lugares
+diferentes da obra e terminam em palavras diferentes. As regras de gosto
+genérico ("prefira concreto", "evite clichê") saíram — puxavam para um estilo
+da casa, não para o do autor. O pedido é dado, em duas partes:
+
+- `<obra>` — título, tema, forma, **todos os comentários com o lugar de cada
+  um**, e o texto medido verso a verso.
+- `<pedido>` — onde, a tarefa, a rima, e os comentários **colados ao ponto**
+  (sem verso escrito no meio), que valem para todas as propostas.
+
+**Pedir de novo é pedir outra coisa.** O pedido repetido no mesmo ponto saía
+idêntico, e a resposta também. O App guarda em memória o que já foi mostrado
+em cada ponto e o manda de volta com ordem de não repetir. É só da sessão,
+nunca do documento: recusar continua sem deixar rastro no poema.
+
+**A lista de rimas era sempre a mesma.** A ferramenta devolvia as 80 primeiras
+do léxico, que vem do comum ao raro — as mesmas 80 em todo pedido, e as rimas
+convergiam. Hoje cada consulta é uma amostra nova por faixa de frequência, e as
+palavras que o autor já escreveu (tema, título, versos, comentários) e que rimam
+vêm num grupo `da_obra`. É a ligação com o tema sem modelo semântico: lê-se o
+que o autor escreveu em vez de adivinhar o que é "do assunto".
 
 ## Seleção por verso
 
