@@ -128,7 +128,7 @@ implementados, BYOK com chave em IndexedDB. 118 testes no app cobrem o laço de
 proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 
-Camadas 2, 3 e 4 prontas em `packages/engine`; 289 testes, entre o corpus
+Camadas 2, 3 e 4 prontas em `packages/engine`; 290 testes, entre o corpus
 escandido à mão e as invariantes da busca. Camadas 1 (léxico pré-computado) e 5
 (sugestão) não existem.
 
@@ -271,7 +271,8 @@ cravar pt-BR na arquitetura. Espanhol tem a mesma família de problemas
 
 Não resolva sozinho. São escolhas de produto.
 
-- **Tamanho e formato do léxico embarcado.**
+- **Tamanho e formato do léxico embarcado.** As fontes foram decididas (ver
+  Léxico); o formato de fatia por som e o teto de custo por consulta não.
 - **Quais ações contextuais existem, e como são nomeadas.** A lista de verbos
   ("sugerir rima", "completar estrofe") é fácil; difícil é qual aparece quando,
   e com que nome, sem virar menu.
@@ -308,6 +309,11 @@ reabertas por engano.
   "quando" são `weak`. Se uma posição obrigatória aceita átona é decisão
   separada, da camada 4 — o peso prosódico governa a régua, não o diagnóstico.
 
+  Nem a rima: `rhymeOf` parte da tônica da **palavra** que fecha o verso. Quando
+  procurava só o tempo forte, todo verso terminado em "quando", "antes" ou
+  "sobre" ficava sem rima — e o léxico perdia essas palavras pelo mesmo motivo.
+  Monossílabo de classe fechada ("que", "de") continua sem rima: é clítico.
+
 ## Não construir
 
 - Aplicar saída de IA sem aceitação explícita do autor
@@ -335,15 +341,31 @@ são do documento — a camada 3 não sabe o que é uma estrofe.
 
 ## Léxico
 
-`packages/lexicon` gera e lê o índice de rimas. 315 mil palavras, 18 mil sons
+`packages/lexicon` gera e lê o índice de rimas. 474 mil palavras, 20 mil sons
 distintos, repartidas em 64 fatias por hash da chave de som.
 
-O custo que importa não é o total: é **12 KB comprimidos por consulta**. Quem
-pede rimas em /aw/ nunca baixa as rimas em /ia/, e a fatia fica em memória
-depois. A busca com a fatia carregada custa 0,13 ms.
+O custo que importa não é o total: é **35 KB comprimidos por consulta** em
+média, 105 KB no som mais povoado. Quem pede rimas em /aw/ nunca baixa as
+rimas em /ia/, e a fatia fica em memória depois. A busca com a fatia carregada
+custa 0,13 ms. (Esta seção dizia 12 KB; o léxico anterior já custava 24.)
+
+**O corretor ortográfico decide o que é palavra.** O VERO (pt_BR do
+LibreOffice), expandido em todas as formas flexionadas, é filtro e não fonte:
+reconhece dez milhões de formas, quase todas conjugações que ninguém procura.
+As candidatas vêm das legendas (o que se fala), do acervo de poesia em
+`data/poesia.txt` (o que se escreve em verso), dos radicais do próprio
+corretor e de `data/acrescentar.txt`; `data/excluir.txt` vence tudo.
+
+A fonte anterior era uma lista só com os radicais do mesmo dicionário. Medido
+contra poetas **fora** do acervo, a fração de palavras em fim de verso ausente
+do léxico caiu de 50% para 15% — e o que sobra é quase tudo grafia antiga que o
+Wikisource não modernizou, que o léxico não deve oferecer. Conjugação de verbo
+regular ausente: de 94% para 19% (o resto é vós e mais-que-perfeito).
 
 O índice é gerado fora do navegador e não é versionado — ver NOTICE.md para as
-fontes e licenças. Refazer: `npm run build:data -w @escandir/lexicon`.
+fontes e licenças. O CI baixa o corretor e as legendas; o acervo de poesia está
+no repositório. Refazer à mão:
+`node --max-old-space-size=6000 packages/lexicon/scripts/build.mjs <frequencias.txt> <pt_BR.dic> <pt_BR.aff> apps/editor/public/lexico`.
 
 Ele serve duas pontas pelo mesmo dado: o poeta, quando a tela de sugestões
 existir, e a IA, que o consulta como ferramenta.

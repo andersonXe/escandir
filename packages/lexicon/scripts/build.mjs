@@ -4,20 +4,34 @@
  * Roda fora do navegador, uma vez. O que ele produz é asset estático imutável,
  * cacheável para sempre — nada disto acontece em tempo de escrita.
  *
- * Duas fontes, com papéis distintos:
+ * **Quem decide o que é palavra é o corretor ortográfico** (VERO, o pt_BR do
+ * LibreOffice), expandido em todas as formas que ele reconhece. Antes era uma
+ * lista só com os radicais desse mesmo dicionário: tinha "cantar" e não
+ * "cantava", e quase metade das palavras em fim de verso de Bilac e Castro
+ * Alves ficava de fora.
  *
- * - `palavras.txt` diz o que **é palavra**. Sem ele, lista de frequência de
- *   legendas traz nome próprio, erro de digitação e estrangeirismo.
- * - `pt_br_full.txt` diz o que é **usado**. Sem ele, não há como separar o
- *   corrente do obscuro, e toda sugestão sai com o mesmo peso.
+ * Expandido, o corretor reconhece dez milhões de formas — demais para o site,
+ * e quase todas conjugações que ninguém procura. Então ele é filtro, não
+ * fonte. As candidatas vêm de quatro lugares, e entra a que ele reconhece:
  *
- * A interseção é a lista limpa e ordenada por uso.
+ * - `pt_br_full.txt` — legendas de filmes e séries: o que se **fala**, e com
+ *   que frequência. É o que ordena do comum ao raro.
+ * - `data/poesia.txt` — poetas em domínio público: o que se **escreve** em
+ *   verso e a legenda não tem ("dardeja", "ardentias").
+ * - os radicais do corretor — a forma de dicionário de toda entrada, para a
+ *   palavra rara não sumir só por ninguém a dizer ("alfazema", "pomar").
+ * - `data/acrescentar.txt` — curadoria à mão. Entra sem passar pelo filtro.
+ *
+ * `data/excluir.txt` vence tudo.
+ *
+ * O corretor é o que separa palavra de lixo: recusa nome de personagem, erro
+ * de digitação e inglês das legendas, e grafia antiga dos poemas.
  *
  * Uso:
- *   node scripts/build.mjs <palavras.txt> <frequencias.txt> <destino>
+ *   node scripts/build.mjs <frequencias.txt> <pt_BR.dic> <pt_BR.aff> <destino>
  */
 
-import { createReadStream } from 'node:fs';
+import { createReadStream, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -30,15 +44,26 @@ import {
   VERSO_LIVRE,
 } from '../../engine/dist/index.js';
 import { SHARD_COUNT, shardName, shardOf } from '../src/shard.ts';
+import { expandir } from './hunspell.mjs';
 
-const [, , palavrasPath, freqPath, destino] = process.argv;
-if (palavrasPath === undefined || freqPath === undefined || destino === undefined) {
-  console.error('uso: node scripts/build.mjs <palavras.txt> <frequencias.txt> <destino>');
+const [, , freqPath, dicPath, affPath, destino] = process.argv;
+if (freqPath === undefined || dicPath === undefined || affPath === undefined || destino === undefined) {
+  console.error('uso: node scripts/build.mjs <frequencias.txt> <pt_BR.dic> <pt_BR.aff> <destino>');
   process.exit(1);
 }
 
 /** Só letras do português. Corta sigla, número, pontuação e o que veio torto. */
 const PALAVRA = /^[a-zà-öø-ÿ]+(?:-[a-zà-öø-ÿ]+)*$/;
+
+/**
+ * Forma de comparar. O trema saiu da ortografia em 2009: "tranqüilo" nos
+ * poemas e nas legendas antigas é "tranquilo", e o corretor só conhece a nova.
+ */
+function normalizar(bruta) {
+  const palavra = bruta.trim().toLowerCase().normalize('NFC').replace(/ü/g, 'u');
+  // Monossílabo de uma letra não rima com nada de útil; hífen só no interior.
+  return palavra.length >= 2 && PALAVRA.test(palavra) ? palavra : null;
+}
 
 async function* linhas(path) {
   const stream = createReadStream(path, { encoding: 'utf8' });
@@ -47,42 +72,57 @@ async function* linhas(path) {
   }
 }
 
-console.log('lendo o dicionário...');
-const validas = new Set();
-for await (const linha of linhas(palavrasPath)) {
-  const palavra = linha.trim().toLowerCase().normalize('NFC');
-  // Monossílabo de uma letra não rima com nada de útil; hífen só no interior.
-  if (palavra.length >= 2 && PALAVRA.test(palavra)) validas.add(palavra);
+/** Lista versionada em `data/`: uma palavra por linha, `#` comenta. */
+function lista(nome) {
+  return readFileSync(new URL(`../data/${nome}`, import.meta.url), 'utf8')
+    .split(/\r?\n/)
+    .filter((linha) => !linha.startsWith('#'))
+    .map((linha) => normalizar(linha.split(' ')[0] ?? ''))
+    .filter((palavra) => palavra !== null);
 }
-console.log(`  ${validas.size.toLocaleString('pt-BR')} palavras de dicionário`);
 
-console.log('lendo as frequências...');
+console.log('expandindo o corretor ortográfico...');
+const { formas, radicais } = expandir(dicPath, affPath);
+console.log(`  ${formas.size.toLocaleString('pt-BR')} formas, ${radicais.size.toLocaleString('pt-BR')} radicais`);
+
+const excluir = new Set(lista('excluir.txt'));
 const ordem = [];
 const vistas = new Set();
-for await (const linha of linhas(freqPath)) {
-  const palavra = linha.split(' ')[0]?.trim().toLowerCase().normalize('NFC');
-  if (palavra === undefined || !validas.has(palavra) || vistas.has(palavra)) continue;
+/** Acrescenta na ordem, uma vez só. `livre` pula o corretor (curadoria). */
+function entra(palavra, livre = false) {
+  if (palavra === null || vistas.has(palavra) || excluir.has(palavra)) return false;
+  if (!livre && !formas.has(palavra)) return false;
   vistas.add(palavra);
   ordem.push(palavra);
+  return true;
 }
+
+console.log('lendo as frequências...');
+for await (const linha of linhas(freqPath)) entra(normalizar(linha.split(' ')[0] ?? ''));
 const usadas = ordem.length;
 
+// Os poemas vêm depois das legendas: o que as duas têm já entrou pela
+// frequência da fala, que é a que ordena. Aqui entra o que só o verso usa.
+console.log('lendo o acervo de poesia...');
+for (const palavra of lista('poesia.txt')) entra(palavra);
+const poeticas = ordem.length - usadas;
+
+let curadas = 0;
+for (const palavra of lista('acrescentar.txt')) if (entra(palavra, true)) curadas += 1;
+
 /*
- * O resto do dicionário entra depois das frequentes, na faixa mais rara.
+ * O resto do dicionário entra depois, na faixa mais rara.
  *
  * Legenda de cinema não é corpus de poesia: "pomar", "alfazema" e "vagar" mal
  * aparecem lá, e são justamente o tipo de palavra que se procura ao rimar.
  * Cortá-las por não serem comuns empobreceria a ferramenta no ponto em que ela
  * mais serve.
  */
-for (const palavra of validas) {
-  if (!vistas.has(palavra)) ordem.push(palavra);
-}
+for (const palavra of radicais) entra(normalizar(palavra));
 console.log(
-  `  ${usadas.toLocaleString('pt-BR')} usadas em legendas, ` +
-    `mais ${(ordem.length - usadas).toLocaleString('pt-BR')} só de dicionário`,
+  `  ${usadas.toLocaleString('pt-BR')} das legendas, ${poeticas.toLocaleString('pt-BR')} só da poesia, ` +
+    `${curadas} curadas, ${(ordem.length - usadas - poeticas - curadas).toLocaleString('pt-BR')} só de dicionário`,
 );
-
 /**
  * Cinco faixas por posto de frequência, não por contagem bruta.
  *
@@ -90,10 +130,12 @@ console.log(
  * a mediana aparece 3. Faixa por posto dá grupos de tamanho comparável, que é
  * o que serve para a interface oferecer "comum" e "raro" lado a lado.
  */
-function faixa(posto, total) {
-  // As de dicionário-só caem todas na última faixa, por construção da ordem.
+function faixa(posto) {
+  // A faixa mede a fala: o que não aparece nas legendas — só da poesia, só do
+  // dicionário — cai todo na última, e os cortes valem só entre as faladas.
+  if (posto >= usadas) return 5;
   const cortes = [0.02, 0.1, 0.3, 0.6];
-  const p = posto / total;
+  const p = posto / usadas;
   for (let i = 0; i < cortes.length; i += 1) {
     if (p < cortes[i]) return i;
   }
@@ -101,7 +143,7 @@ function faixa(posto, total) {
 }
 
 console.log('escandindo...');
-const analyzer = createAnalyzer(ptBR, { maxEntries: 400_000 });
+const analyzer = createAnalyzer(ptBR, { maxEntries: 1_000_000 });
 const porSom = new Map();
 let escandidas = 0;
 let semRima = 0;
@@ -117,9 +159,14 @@ ordem.forEach((palavra, posto) => {
 
   // Tônica contada do fim: é assim que a métrica usa. Uma oxítona fecha o
   // verso na própria sílaba; uma paroxítona deixa uma extramétrica sobrando.
+  //
+  // A tônica da palavra, não o tempo forte da régua. Palavra de classe fechada
+  // ("quando", "antes", "uma") não desenha tempo forte no meio do verso, mas no
+  // fim dele carrega a rima como qualquer outra — "quando" rima com "brando".
+  // Procurar só o tempo forte as descartava todas.
   let tonica = -1;
   for (let i = reading.syllables.length - 1; i >= 0; i -= 1) {
-    if (reading.syllables[i].stressStrength === 'strong') {
+    if (reading.syllables[i].isStressed) {
       tonica = i;
       break;
     }
@@ -130,7 +177,7 @@ ordem.forEach((palavra, posto) => {
     palavra,
     reading.syllables.length,
     reading.syllables.length - tonica,
-    faixa(posto, ordem.length),
+    faixa(posto),
   ];
 
   const lista = porSom.get(rima.sound);
@@ -165,7 +212,8 @@ const manifest = {
   words: escandidas,
   sounds: porSom.size,
   sources: [
-    { name: 'pythonprobr/palavras (dicionário LibreOffice pt_BR)', license: 'MPL-2.0' },
+    { name: 'VERO, corretor ortográfico pt_BR do LibreOffice (filtro)', license: 'LGPL-3.0 / MPL' },
+    { name: 'Wikisource, poesia em domínio público (data/poesia.txt)', license: 'domínio público' },
     { name: 'hermitdave/FrequencyWords (OpenSubtitles pt-BR)', license: 'MIT' },
   ],
 };

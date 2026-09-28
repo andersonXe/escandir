@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "build:data": "node scripts/build.mjs",
+    "build:data": "node --max-old-space-size=6000 scripts/build.mjs",
+    "build:poesia": "node scripts/poesia.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "types": "./dist/index.d.ts",

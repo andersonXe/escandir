@@ -1,0 +1,5 @@
+# Palavras que não entram no léxico, mesmo que as fontes as tragam.
+#
+# Uma por linha, em minúscula. É onde se corrige o que escapou do filtro: forma
+# que o corretor aceita mas que não se quer oferecer como rima. Vence tudo,
+# inclusive `acrescentar.txt`.

@@ -1,32 +1,55 @@
 # Fontes de dados
 
 O léxico em `apps/editor/public/lexico/` é gerado por
-`packages/lexicon/scripts/build.mjs` a partir de duas listas públicas. Ele não
-é versionado: refaça com `npm run build:data -w @escandir/lexicon`.
+`packages/lexicon/scripts/build.mjs`. Ele não é versionado: o CI baixa as
+fontes externas e o refaz a cada publicação (ver `.github/workflows/pages.yml`).
 
-## pythonprobr/palavras — MPL-2.0
+## VERO — corretor ortográfico pt_BR do LibreOffice — LGPL-3.0 / MPL
 
-Lista de ~320.000 palavras do português brasileiro, derivada do dicionário
-ortográfico pt_BR do LibreOffice.
+Dicionário Hunspell mantido por Raimundo Moura e colaboradores, no repositório
+de dicionários do LibreOffice, preso ao commit
+`5cf23af85b47be6e398add826da1a02175be4238`.
 
-https://github.com/pythonprobr/palavras
+https://github.com/LibreOffice/dictionaries/tree/master/pt_BR
 
-Define **o que é palavra**. Sem ela, uma lista de frequência de legendas traz
-nome próprio, erro de digitação e estrangeirismo.
+Decide **o que é palavra**. O gerador expande os radicais em todas as formas
+flexionadas que o corretor reconhece (`scripts/hunspell.mjs`) e aceita só as
+candidatas que estão entre elas. É o que recusa nome próprio, erro de
+digitação e inglês das legendas, e grafia antiga dos poemas. Os radicais
+entram também por si, na faixa mais rara.
+
+Substitui a lista `pythonprobr/palavras`, que era só os radicais deste mesmo
+dicionário, sem as flexões: tinha "cantar" e não "cantava".
 
 ## hermitdave/FrequencyWords — MIT
 
-Frequências de palavras do pt-BR, a partir do corpus OpenSubtitles.
+Frequências de palavras do pt-BR, contadas sobre o OpenSubtitles 2018 —
+legendas de filmes e séries.
 
 https://github.com/hermitdave/FrequencyWords
 
-Define **o que é usado**, e é o que permite separar o corrente do obscuro. As
-palavras que não aparecem nela entram assim mesmo, na faixa mais rara: legenda
-de cinema não é corpus de poesia.
+Define **o que é usado**, e é o que separa o corrente do obscuro.
 
-## Sobre a MPL-2.0
+## Wikisource — domínio público
 
-É copyleft por arquivo, não viral sobre o resto do projeto. O asset gerado é
-obra derivada da lista e mantém a licença dela; o código do editor permanece
-independente. Se a MPL for um problema para o destino do projeto, a troca é
-substituir a lista de palavras — o gerador não depende de qual seja.
+`packages/lexicon/data/poesia.txt`: vocabulário de 23 poetas de língua
+portuguesa mortos antes de 1956, com a contagem de cada palavra. Gerado por
+`packages/lexicon/scripts/poesia.mjs` e versionado. As obras estão em domínio
+público; a lista é só de palavras e contagens, não reproduz texto.
+
+https://pt.wikisource.org
+
+Traz o que se escreve em verso e a legenda não tem ("dardeja", "ardentias").
+
+## Curadoria própria
+
+`packages/lexicon/data/acrescentar.txt` e `excluir.txt`: listas mantidas à mão
+neste repositório, sob a licença dele.
+
+## Sobre a LGPL e a MPL
+
+As duas são copyleft sobre o próprio arquivo, não virais sobre o resto do
+projeto. O asset gerado é obra derivada do dicionário e mantém a licença dele;
+o código do editor permanece independente. Se isso for um problema para o
+destino do projeto, a troca é substituir o corretor — o gerador não depende de
+qual seja, desde que seja Hunspell.

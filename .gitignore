@@ -8,7 +8,7 @@ coverage/
 design/uploads/
 design/.thumbnail
 
-# léxico gerado: refaça com `npm run build:data -w @escandir/lexicon`
+# léxico gerado pelo CI: ver NOTICE.md e a seção Léxico do CLAUDE.md
 apps/editor/public/lexico/
 
 # listas baixadas pelo CI para gerar o léxico

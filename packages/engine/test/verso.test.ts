@@ -239,4 +239,12 @@ describe('terminação de rima', () => {
   it('verso sem tônica forte não tem terminação', () => {
     expect(key('e o que')).toBe('');
   });
+
+  it('palavra de classe fechada no fim do verso carrega a rima', () => {
+    // Não desenha tempo forte, mas tem tônica própria: "quando" rima com
+    // "brando". Procurar só o tempo forte deixava esses versos sem rima.
+    expect(key('a noite vem quando')).toBe(key('o passo lento e brando'));
+    expect(key('e a pedra sobre')).toBe(key('a mão que se descobre'));
+    expect(key('antes')).not.toBe('');
+  });
 });

@@ -30,13 +30,28 @@ export interface Rhyme {
 export const NO_RHYME: Rhyme = { tail: '', sound: '', vowels: '' };
 
 /**
- * A terminação rimável do verso. Vazia quando não há tônica forte — verso
- * ainda em curso, ou linha só de átonas.
+ * A terminação rimável do verso. Vazia quando não há tônica — linha só de
+ * clíticos.
+ *
+ * A rima parte da tônica da **palavra**, não do tempo forte da régua. Palavra
+ * de classe fechada ("quando", "antes", "uma") tem tônica própria mas não
+ * desenha tempo forte, e procurar só o forte deixava sem rima todo verso que
+ * terminasse nela — "quando" não rimava com "brando". O peso prosódico governa
+ * a régua; a rima é da palavra que fecha o verso.
+ *
+ * Monossílabo de classe fechada ("que", "de", "o") fica de fora: é clítico, e
+ * verso que acaba nele é verso em curso ou encadeado, não rima em "-e".
  */
 export function rhymeOf(reading: Reading, text: string, prosody: Prosody): Rhyme {
+  const syllables = reading.syllables;
+  /** A palavra desta sílaba tem mais de uma sílaba. */
+  const polissilaba = (i: number): boolean =>
+    (i > 0 && syllables[i - 1]?.isWordEnd === false) || syllables[i]?.isWordEnd === false;
   let last = -1;
-  for (let i = reading.syllables.length - 1; i >= 0; i -= 1) {
-    if (reading.syllables[i]?.stressStrength === 'strong') {
+  for (let i = syllables.length - 1; i >= 0; i -= 1) {
+    const s = syllables[i];
+    if (s === undefined) continue;
+    if (s.stressStrength === 'strong' || (s.isStressed && polissilaba(i))) {
       last = i;
       break;
     }

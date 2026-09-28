@@ -4,10 +4,12 @@
 # obsolescência quando a action declara node20 internamente, e isso não tem
 # relação com o node-version do setup-node abaixo, que é o Node do build.
 #
-# O léxico de rimas não está no repositório: são 7 MB gerados a partir de duas
-# listas públicas (ver NOTICE.md). Este workflow baixa as listas e roda o
-# gerador, que é o passo que faz a busca de rimas existir no site publicado.
-# As listas ficam em cache entre execuções — elas não mudam.
+# O léxico de rimas não está no repositório: são 10 MB gerados a partir de
+# fontes públicas (ver NOTICE.md). Este workflow baixa o corretor ortográfico e
+# a lista de frequência e roda o gerador, que é o passo que faz a busca de
+# rimas existir no site publicado. O acervo de poesia já está no repositório,
+# em packages/lexicon/data. As fontes baixadas ficam em cache entre execuções —
+# o corretor está preso a um commit, e a lista de frequência não muda.
 
 name: pages
 
@@ -51,24 +53,30 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .cache/listas
-          key: listas-pt-br-v1
+          key: listas-pt-br-v2
 
       - name: baixar as listas
         if: steps.listas.outputs.cache-hit != 'true'
+        env:
+          # VERO, o pt_BR do LibreOffice, preso a um commit: o léxico não muda
+          # sozinho quando o dicionário muda.
+          VERO: https://raw.githubusercontent.com/LibreOffice/dictionaries/5cf23af85b47be6e398add826da1a02175be4238/pt_BR
         run: |
           mkdir -p .cache/listas
-          curl -fsSL --retry 3 \
-            -o .cache/listas/palavras.txt \
-            https://raw.githubusercontent.com/pythonprobr/palavras/master/palavras.txt
+          curl -fsSL --retry 3 -o .cache/listas/pt_BR.dic "$VERO/pt_BR.dic"
+          curl -fsSL --retry 3 -o .cache/listas/pt_BR.aff "$VERO/pt_BR.aff"
           curl -fsSL --retry 3 \
             -o .cache/listas/frequencias.txt \
             https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/pt_br/pt_br_full.txt
 
       - name: gerar o léxico
         run: |
-          node packages/lexicon/scripts/build.mjs \
-            .cache/listas/palavras.txt \
+          # O corretor expandido tem dez milhões de formas; cabe com folga nos
+          # 7 GB do runner, não no heap padrão do Node.
+          node --max-old-space-size=6000 packages/lexicon/scripts/build.mjs \
             .cache/listas/frequencias.txt \
+            .cache/listas/pt_BR.dic \
+            .cache/listas/pt_BR.aff \
             apps/editor/public/lexico
 
       - name: montar o site

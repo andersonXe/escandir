@@ -1,0 +1,6 @@
+# Palavras que entram no léxico mesmo que o corretor não as reconheça.
+#
+# Uma por linha, em minúscula. É a parte curada à mão: neologismo, regionalismo,
+# termo que o dicionário ortográfico ainda não tem. Entram sem passar pelo
+# corretor, então revise antes de acrescentar — o que está aqui chega à
+# ferramenta de rimas como palavra de verdade.
