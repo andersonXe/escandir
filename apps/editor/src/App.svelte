@@ -570,7 +570,30 @@
       rhymeTarget: rhymeTargetFor(index)?.tail ?? null,
       emptyRun: emptyRunFrom(index),
       poemEmpty: filled === 0,
+      isLastVerse: index === lastVerseIndex,
     });
+  }
+
+  /**
+   * A linha do último verso da forma declarada, ou -1. Sem número de versos
+   * declarado não há fecho a apontar: o poema acaba onde o autor parar.
+   */
+  const lastVerseIndex = $derived(forma.verses > 0 ? verseOrdinal.indexOf(forma.verses - 1) : -1);
+
+  /**
+   * O fecho, quando já está escrito e o que se pede vem antes dele: é o ponto
+   * de chegada que o pedido anuncia. `fim` é a primeira linha depois do trecho
+   * que a proposta vai ocupar.
+   */
+  function fechoAte(fim: number): { ending?: string } {
+    const fecho = endingFor(fim);
+    return fecho === undefined ? {} : { ending: fecho };
+  }
+
+  function endingFor(fim: number): string | undefined {
+    if (lastVerseIndex < fim) return undefined;
+    const texto = lines[lastVerseIndex]?.text.trim() ?? '';
+    return texto === '' ? undefined : texto;
   }
 
   /** A ação do tema, com o que já está escrito. `null` sem tema. */
@@ -588,12 +611,21 @@
    * Onde entra um bloco pedido a partir do tema: logo depois do último verso
    * escrito, ocupando as linhas vazias que houver ali. Num poema sem verso, na
    * primeira linha de verso vazia — as que a tela de Forma abriu.
+   *
+   * Com o fecho escrito primeiro, "depois do último verso" seria depois do
+   * fecho. Então, quando as linhas vazias antes dele são exatamente as que
+   * faltam, o bloco vai nelas: é o caminho até o fecho.
    */
   function themeSlot(): { insertAt: number; replaces: number } {
     let last = -1;
     lines.forEach((line, i) => {
       if (line.kind === 'verse' && line.text.trim() !== '') last = i;
     });
+    if (last !== -1 && last === lastVerseIndex) {
+      const vazia = lines.findIndex((line, i) => i < last && line.kind === 'verse' && line.text.trim() === '');
+      const faltam = forma.verses - filled;
+      if (vazia !== -1 && emptyRunFrom(vazia) === faltam) return { insertAt: vazia, replaces: faltam };
+    }
     let insertAt = last + 1;
     if (last === -1) {
       const primeira = lines.findIndex((line) => line.kind === 'verse');
@@ -663,6 +695,7 @@
         // verso depois do bloco.
         ...(verses > 0 ? { trail: trailAfter(insertAt + replaces) } : {}),
       },
+      ...fechoAte(insertAt + replaces),
       usedRhymeWords: [],
       verses,
       candidates: 2,
@@ -694,6 +727,8 @@
     const assessment = scans[index]?.assessment ?? null;
 
     switch (action.id) {
+      case 'write-ending':
+        return { kind: 'ending' };
       case 'write-verse':
         return { kind: 'write' };
       case 'write-stanza': {
@@ -767,6 +802,7 @@
       scheme: forma.rhyme,
       declaredVerses: forma.verses,
       task,
+      ...fechoAte(index + ocupa),
       usedRhymeWords: usedRhymeWordsFor(index),
       verses,
       candidates: action.kind === 'stanza' ? 2 : 4,

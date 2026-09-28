@@ -25,7 +25,8 @@ export type ActionId =
   | 'vary-passage'
   | 'write-stanza'
   | 'address-note'
-  | 'write-poem';
+  | 'write-poem'
+  | 'write-ending';
 
 export interface Action {
   readonly id: ActionId;
@@ -49,6 +50,11 @@ export interface LineSituation {
   readonly emptyRun: number;
   /** Nenhum verso escrito no poema ainda. */
   readonly poemEmpty?: boolean;
+  /**
+   * É o último verso da forma declarada. Só se sabe quando a forma diz quantos
+   * versos o poema tem — sem isso não há fecho a apontar.
+   */
+  readonly isLastVerse?: boolean;
 }
 
 function forma(spec: MetricSpec, rhymeTarget: string | null): string {
@@ -100,6 +106,15 @@ export function actionFor(situation: LineSituation): Action | null {
   const sufixo = forma(spec, rhymeTarget);
 
   if (text.trim() === '') {
+    /*
+     * O último verso vazio é o fecho. Há quem componha por ele: escreve primeiro
+     * a chave de ouro e depois o caminho até ela. A ação se nomeia pelo que ele
+     * é, não por ser uma linha vazia como as outras — e com o fecho escrito, os
+     * pedidos dos versos anteriores passam a dizer que levam a ele.
+     */
+    if (situation.isLastVerse === true) {
+      return { id: 'write-ending', label: `propor o fecho${sufixo}`, kind: 'verse' };
+    }
     // Várias linhas vazias seguidas são uma estrofe por escrever, não um verso.
     if (emptyRun >= 2) {
       return { id: 'write-stanza', label: `escrever ${emptyRun} versos${sufixo}`, kind: 'stanza' };

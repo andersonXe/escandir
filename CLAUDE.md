@@ -121,10 +121,18 @@ para o verso solto (`rhymeTargetFor`) e para o bloco (`schemeChecks` com
 `trail`) — inclusive a estrofe de linhas vazias no meio do poema, que agora
 cobra uma rima por letra em vez de um alvo único para todos os versos.
 
+**Compor a partir do fecho.** Com o número de versos declarado, o último verso
+vazio se oferece como "propor o fecho": o verso mais importante, pedido antes
+do caminho até ele. Escrito o fecho, todo pedido de um ponto anterior a ele diz
+ao modelo que o poema termina ali e que o que se pede leva a ele — prepara sem
+antecipar. E a ação do tema, que escrevia depois do último verso escrito,
+preenche as linhas vazias antes do fecho quando são exatamente as que faltam.
+Sem número de versos declarado não há fecho a apontar.
+
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 139 testes no app cobrem o laço de
+implementados, BYOK com chave em IndexedDB. 145 testes no app cobrem o laço de
 proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 

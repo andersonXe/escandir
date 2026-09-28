@@ -709,3 +709,24 @@ describe('compor de trás para frente', () => {
     expect(bom?.ok).toBe(true);
   });
 });
+
+describe('o pedido quando se compõe a partir do fecho', () => {
+  it('pedir o fecho diz que ele é o mais importante e vem antes do caminho', () => {
+    const user = buildUser(contexto({ task: { kind: 'ending' } }));
+    expect(user).toContain('**fecho**');
+    expect(user).toContain('o autor vai');
+    expect(user).toContain('compor o caminho até ele depois');
+  });
+
+  it('com o fecho escrito, o pedido anterior a ele diz que leva a ele', () => {
+    const fecho = 'e nada mais se move no lugar';
+    const pedido = buildUser(contexto({ ending: fecho })).split('<pedido>')[1] ?? '';
+    expect(pedido).toContain(`o poema termina em "${fecho}"`);
+    expect(pedido).toContain('prepara o caminho');
+  });
+
+  it('sem fecho escrito, nada disso aparece', () => {
+    expect(buildUser(contexto())).not.toContain('o poema termina em');
+    expect(buildUser(contexto({ ending: '   ' }))).not.toContain('o poema termina em');
+  });
+});

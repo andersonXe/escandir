@@ -142,3 +142,22 @@ describe('trecho de vários versos', () => {
     expect(actionFor(situacao({ rangeLength: 1, text: '' }))?.id).toBe('write-verse');
   });
 });
+
+describe('compor a partir do fecho', () => {
+  it('o último verso vazio da forma se oferece como fecho', () => {
+    const action = actionFor(situacao({ isLastVerse: true, rhymeTarget: 'ar' }));
+    expect(action?.id).toBe('write-ending');
+    expect(action?.kind).toBe('verse');
+    expect(action?.label).toBe('propor o fecho · 10 sílabas · rima em -ar');
+  });
+
+  it('sem forma que diga onde o poema acaba, é só mais uma linha vazia', () => {
+    expect(actionFor(situacao())?.id).toBe('write-verse');
+  });
+
+  it('fecho já escrito não é pedido de fecho: é verso como outro', () => {
+    const texto = 'e nada mais se move no lugar';
+    const action = actionFor(situacao({ isLastVerse: true, text: texto, assessment: medir(texto) }));
+    expect(action?.id).toBe('vary-verse');
+  });
+});

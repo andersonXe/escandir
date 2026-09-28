@@ -44,6 +44,8 @@ export type ProposalKind = 'verse' | 'stanza';
 export type Task =
   /** Linha vazia. */
   | { readonly kind: 'write' }
+  /** O último verso, escrito antes do caminho até ele. */
+  | { readonly kind: 'ending' }
   /** Verso pela metade: continuar o que está lá. */
   | { readonly kind: 'complete'; readonly partial: string }
   /** Verso inteiro que não fecha a forma: refazer mantendo o sentido. */
@@ -137,6 +139,12 @@ export interface ProposalContext {
    * também.
    */
   readonly alreadyShown?: readonly string[];
+  /**
+   * O fecho do poema, quando já está escrito e o ponto pedido vem antes dele.
+   * Quem compõe a partir do fecho quer que o resto leve a ele; sem isto, o
+   * modelo o tratava como mais um verso da obra.
+   */
+  readonly ending?: string;
   /** Palavras que já rimam nesta posição. Repeti-las não é rimar. */
   readonly usedRhymeWords: readonly string[];
   /** A ferramenta está disponível nesta chamada. */
@@ -284,6 +292,16 @@ function tarefaLinhas(task: Task): string[] {
   switch (task.kind) {
     case 'write':
       return ['Escreva o verso que falta.'];
+
+    case 'ending':
+      return [
+        'Escreva o **fecho** do poema: o último verso, o que fica com quem lê.',
+        'É o verso mais importante, e vem primeiro de propósito — o autor vai',
+        'compor o caminho até ele depois. Ele não resume o poema nem explica o',
+        'tema: vira, conclui, abre. Precisa se sustentar sozinho e, ao mesmo tempo,',
+        'pedir os versos que ainda não existem.',
+        'Se já há versos escritos, o fecho responde a eles; se não há, parte do tema.',
+      ];
 
     case 'complete':
       return [
@@ -591,6 +609,14 @@ function obraLinhas(context: ProposalContext, leitura: Leitura): string[] {
 function pedidoLinhas(context: ProposalContext, leitura: Leitura): string[] {
   const partes: string[] = ['<pedido>', `onde: ${leitura.onde}`, 'tarefa:'];
   partes.push(...tarefaLinhas(context.task).map((linha) => (linha === '' ? '' : `  ${linha}`)));
+
+  if (context.ending !== undefined && context.ending.trim() !== '') {
+    partes.push(
+      `fecho: o poema termina em "${context.ending.trim()}" — já está escrito.`,
+      '  O que se pede aqui leva a ele: prepara o caminho, sem antecipar a imagem',
+      '  do fecho nem repetir o que ele diz. Ele é o ponto de chegada.',
+    );
+  }
 
   const junto = leitura.comentarios.filter((c) => c.junto);
   if (junto.length > 0) {
