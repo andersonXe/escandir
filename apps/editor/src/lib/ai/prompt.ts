@@ -8,13 +8,21 @@
  *
  * O que funciona é a ferramenta `escandir` — o modelo mede em vez de adivinhar.
  * O texto abaixo mudou de função: não ensina mais a contar, ensina a **usar a
- * régua** e mostra exemplos escandidos para calibrar a intuição. Quem garante
- * continua sendo o motor, que mede tudo de novo depois.
+ * régua**. Quem garante continua sendo o motor, que mede tudo de novo depois.
+ *
+ * **Nenhum verso de exemplo.** Houve três decassílabos escandidos aqui, e o
+ * formato da resposta era ilustrado com versos de verdade. Exemplo é o molde
+ * mais forte de um prompt: o modelo levava o assunto e a cadência junto com a
+ * contagem, e um poema sobre fábrica recebia como referência um verso sobre o
+ * mar. O que calibra agora é o próprio poema, medido linha a linha
+ * (`poema.ts`), e a régua sobre os rascunhos do modelo. Regra se enuncia;
+ * formato se mostra com marcadores.
  */
 
-import { NO_RHYME, type MetricSpec, type Rhyme } from '@escandir/engine';
+import { type MetricSpec, NO_RHYME, type Rhyme } from '@escandir/engine';
 
-import { describeScheme, schemeChecks, type SchemeLead } from './esquema.js';
+import { describeScheme, letterAt, schemeChecks, type SchemeLead } from './esquema.js';
+import type { PoemLine } from './poema.js';
 
 export type ProposalKind = 'verse' | 'stanza';
 
@@ -82,13 +90,21 @@ export interface ProposalContext {
   readonly spec: MetricSpec;
   /** Terminação que a rima precisa casar, ex.: `ar`. `null` = livre. */
   readonly rhymeTarget: Rhyme | null;
-  /** Versos já escritos antes do ponto pedido. */
-  readonly before: readonly string[];
-  readonly after: readonly string[];
+  /**
+   * As linhas antes e depois do ponto pedido, já medidas. Nota e título vão no
+   * lugar onde estão: nota é pedido preso a um ponto do texto, e é ali que ela
+   * se lê.
+   */
+  readonly before: readonly PoemLine[];
+  readonly after: readonly PoemLine[];
+  /** Título do documento. Vazio ou o padrão "sem título" não vai no pedido. */
+  readonly title: string;
   /** Do que o poema trata, na voz do autor. Contexto permanente. */
   readonly theme: string;
-  /** Comentários do autor no documento, endereçados a quem propõe. */
-  readonly notes: readonly string[];
+  /** Esquema de rima do poema inteiro. Vazio = sem rima. */
+  readonly scheme: string;
+  /** Versos que a forma declara. `0` = sem número fixo. */
+  readonly declaredVerses: number;
   readonly task: Task;
   /** Quantos versos a estrofe pede. Ignorado quando `kind` é `verse`. */
   readonly verses: number;
@@ -103,86 +119,55 @@ export interface ProposalContext {
 
 export const SEPARATOR = '---';
 
-/**
- * Exemplos escandidos. Valem mais que a regra enunciada: mostram a elisão
- * acontecendo, a contagem parando na tônica, e a sílaba extramétrica existindo
- * sem contar — as três coisas que o modelo erra sozinho.
- */
-const EXEMPLOS = `Três versos decassílabos, escandidos (MAIÚSCULA = tônica, | separa sílaba,
-parênteses = extramétrica):
-
-  "A tarde desce lenta sobre o mar"
-  a|TAR|de|DES|ce|LEN|ta|so|breo|MAR  ->  10
-  Repare: "sobre o" virou "breo", uma sílaba só. Elisão.
-
-  "e o vento esquece o nome que trazia"
-  eo|VEN|toes|QUE|ceo|NO|me|que|tra|ZI|(a)  ->  10
-  Repare: três elisões, e o "a" final não conta — vem depois da última tônica.
-  O verso tem 11 sílabas faladas e mede 10.
-
-  "e nada mais se move no lugar"
-  e|NA|da|MAIS|se|MO|ve|no|lu|GAR  ->  10
-  Nenhuma elisão. Aqui falado e medido coincidem.`;
-
 const REGRAS = `O que torna a contagem diferente da intuição:
 
 1. Elisão entre palavras é a REGRA, não a exceção. Vogal final átona funde
    com vogal inicial seguinte, e as duas viram uma sílaba só.
 2. A contagem PARA NA ÚLTIMA TÔNICA. O que vem depois existe e não conta.
-   Por isso verso terminado em palavra grave ("trazia", "lugar-es") mede uma
-   a menos do que parece.
+   Por isso verso terminado em palavra grave mede uma sílaba a menos do que
+   se fala, e em palavra esdrúxula, duas.
 3. Sílaba poética não é sílaba gramatical.`;
-
-function formaLinhas(spec: MetricSpec): string[] {
-  if (spec.syllables <= 0) return ['Verso livre: sem número fixo de sílabas.'];
-  const linhas = [`Cada verso: ${spec.syllables} sílabas poéticas, contadas até a última tônica.`];
-  if (spec.requiredStresses.length > 0) {
-    linhas.push(`Tônica obrigatória na: ${spec.requiredStresses.map((p) => `${p}ª`).join(', ')}.`);
-  }
-  return linhas;
-}
 
 /**
  * O que se espera por proposta. Precisa casar com a TAREFA: quando o pedido
  * era de trecho e o formato dizia 'versos', o modelo devolveu quatro
  * separadores vazios — entendeu o formato, não soube o que pôr dentro.
+ *
+ * O molde vem em marcadores, não em versos: verso posto aqui como ilustração
+ * era copiado junto com o formato.
  */
-function unidadeDaResposta(context: ProposalContext): { quantos: string; exemplo: string[] } {
+function unidadeDaResposta(context: ProposalContext): { quantos: string; molde: readonly string[] } {
   const n = context.candidates;
+  const bloco = ['<verso>', '<verso>', '...'];
   if (context.task.kind === 'poem') {
     const extensao =
       context.task.verses > 0 ? `de ${context.task.verses} versos cada` : 'da extensão que você escolher';
     return {
       quantos: `${n} blocos inteiros, ${extensao}, um verso por linha, sem linha em branco entre estrofes`,
-      exemplo: ['e nada mais se move no lugar', 'a tarde desce lenta sobre o mar'],
+      molde: bloco,
     };
   }
   if (context.kind === 'stanza') {
     const versos = context.task.kind === 'passage' ? context.task.original.length : context.verses;
-    return {
-      quantos: `${n} blocos inteiros, de ${versos} versos cada`,
-      exemplo: ['e nada mais se move no lugar', 'a tarde desce lenta sobre o mar'],
-    };
+    return { quantos: `${n} blocos inteiros, de ${versos} versos cada`, molde: bloco };
   }
   if (context.task.kind === 'fragment') {
     return {
       quantos: `${n} trechos — só o pedaço que substitui a marca, sem o verso em volta`,
-      exemplo: ['entre os bancos vazios', 'por sobre as cadeiras'],
+      molde: ['<trecho>'],
     };
   }
-  return { quantos: `${n} versos`, exemplo: ['e nada mais se move no lugar', 'a tarde desce lenta sobre o mar'] };
+  return { quantos: `${n} versos`, molde: ['<verso>'] };
 }
 
 export function buildSystem(context: ProposalContext): string {
-  const { quantos, exemplo } = unidadeDaResposta(context);
+  const { quantos, molde } = unidadeDaResposta(context);
 
   const partes: string[] = [
     'Você propõe versos para um poeta brasileiro que está escrevendo. Ele decide;',
     'você nunca decide por ele. Proponha alternativas, não a resposta certa.',
     '',
     REGRAS,
-    '',
-    EXEMPLOS,
     '',
   ];
 
@@ -217,16 +202,18 @@ export function buildSystem(context: ProposalContext): string {
     '- Sem numeração, sem aspas, sem título, sem comentário, sem explicação.',
     '- Nada de texto antes da primeira proposta nem depois da última.',
     '',
-    'Exemplo de resposta final bem formada, para dois candidatos:',
+    'Molde, para dois candidatos. Os sinais <> marcam onde vai o texto e não',
+    'fazem parte da resposta:',
     '',
-    exemplo[0] ?? '',
+    ...molde,
     SEPARATOR,
-    exemplo[1] ?? '',
+    ...molde,
     '',
     'SOBRE O QUE PROPOR:',
-    '- Siga o vocabulário, o registro e as imagens do que já está escrito.',
-    '  A voz é do autor; você está continuando a dele, não estreando a sua.',
-    '- Evite rima previsível e imagem gasta (coração/emoção, amor/dor, vida/ferida).',
+    '- O poema do autor, que vai no pedido, é a única referência de voz: siga o',
+    '  vocabulário, o registro e as imagens do que já está escrito. Você está',
+    '  continuando a voz dele, não estreando a sua.',
+    '- Evite rima previsível e imagem gasta.',
     '- Prefira concreto a abstrato: coisa que se vê, se toca, se ouve.',
     '- Varie entre as propostas. Alternativas que se parecem não são alternativas:',
     '  mude a imagem, não só as palavras.',
@@ -368,17 +355,112 @@ function tarefaPoema(task: PoemTask): string[] {
   return partes;
 }
 
+/** Título que o editor põe sozinho não é do autor, e não vai no pedido. */
+const SEM_TITULO = 'sem título';
+
+/**
+ * Quantas linhas de verso a proposta ocupa no poema, para a numeração do que
+ * vem depois não pular nem repetir.
+ */
+function versosDoPedido(context: ProposalContext): number {
+  const task = context.task;
+  if (task.kind === 'poem') return task.verses;
+  if (task.kind === 'passage') return task.original.length;
+  return context.kind === 'stanza' ? context.verses : 1;
+}
+
+/**
+ * Uma linha do poema como dado: número do verso, letra do esquema, medida e
+ * terminação. É o que o sistema já sabe sobre cada verso, e é o que deixa o
+ * modelo ver a forma do poema **deste** autor em vez de uma forma de exemplo.
+ */
+function linhaDoPoema(line: PoemLine, numero: number): string {
+  if (line.kind === 'heading') return `     título de seção: ${line.text}`;
+  if (line.kind === 'note') return `     nota do autor: ${line.text}`;
+  const letra = line.letter === '' ? ' ' : line.letter;
+  const rotulo = `${String(numero).padStart(3)} ${letra}`;
+  if (line.text.trim() === '') return `${rotulo} [vazio]`;
+  const medida =
+    line.count === null
+      ? (line.problem ?? 'sem medida')
+      : `${line.count}${line.problem === null ? '' : `, ${line.problem}`}`;
+  const rima = line.rhyme === '' ? '' : ` · -${line.rhyme}`;
+  return `${rotulo} [${medida}${rima}] ${line.text}`;
+}
+
+function textoLinhas(context: ProposalContext): string[] {
+  const saida: string[] = [];
+  let numero = 0;
+  const escreve = (line: PoemLine): void => {
+    if (line.kind === 'verse') numero += 1;
+    saida.push(linhaDoPoema(line, numero));
+  };
+  context.before.forEach(escreve);
+
+  const primeiro = numero + 1;
+  const ocupa = versosDoPedido(context);
+  const onde =
+    context.kind === 'stanza'
+      ? ocupa > 0
+        ? `versos ${primeiro} a ${primeiro + ocupa - 1}`
+        : `a partir do verso ${primeiro}`
+      : `verso ${primeiro}${context.scheme === '' ? '' : `, letra ${letterAt(context.scheme, primeiro - 1)}`}`;
+  saida.push(
+    context.kind === 'stanza'
+      ? `>>> a estrofe pedida entra aqui <<< (${onde})`
+      : `>>> o verso pedido entra aqui <<< (${onde})`,
+  );
+  numero += Math.max(ocupa, 0);
+
+  context.after.forEach(escreve);
+  return saida;
+}
+
+/** A forma declarada, campo por campo — as quatro coisas independentes. */
+function formaLinhas(context: ProposalContext): string[] {
+  const { spec } = context;
+  const linhas: string[] = [];
+  linhas.push(
+    spec.syllables > 0
+      ? `medida: ${spec.syllables} sílabas poéticas por verso, contadas até a última tônica`
+      : 'medida: verso livre, sem número fixo de sílabas',
+  );
+  if (spec.syllables > 0 && spec.requiredStresses.length > 0) {
+    linhas.push(`tônicas obrigatórias: ${spec.requiredStresses.map((p) => `${p}ª`).join(', ')}`);
+  }
+  linhas.push(context.scheme === '' ? 'esquema de rima: sem rima fixa' : `esquema de rima: ${context.scheme}`);
+  const escritos = [...context.before, ...context.after].filter(
+    (line) => line.kind === 'verse' && line.text.trim() !== '',
+  ).length;
+  linhas.push(
+    context.declaredVerses > 0
+      ? `extensão: ${context.declaredVerses} versos, ${escritos} escritos`
+      : `extensão: livre, ${escritos} versos escritos`,
+  );
+  return linhas;
+}
+
 export function buildUser(context: ProposalContext): string {
   const partes: string[] = [];
 
+  const titulo = context.title.trim();
+  if (titulo !== '' && titulo.toLowerCase() !== SEM_TITULO) {
+    partes.push('TÍTULO', titulo, '');
+  }
+
   /*
-   * O tema vem primeiro, antes da forma, porque é o que enquadra tudo o mais.
+   * O tema vem antes da forma, porque é o que enquadra tudo o mais.
    *
    * A primeira versão desta seção dizia "não repita estes termos", temendo que
    * o modelo encaixasse as palavras do tema à força. Saiu o contrário do
    * esperado: ele evitou justamente as coisas concretas que carregavam o
-   * poema — escreveu "trânsito" onde o tema dizia "bonde" — e entregou
-   * atmosfera genérica. O que se evita é a paráfrase, não o material.
+   * poema e entregou atmosfera genérica. O que se evita é a paráfrase, não o
+   * material.
+   *
+   * A instrução já ilustrou isso com um par de palavras inventado. Saiu pelo
+   * mesmo motivo dos versos de exemplo: a palavra do exemplo aparecia nos
+   * poemas. A regra agora aponta para o tema do próprio autor, que está logo
+   * acima dela.
    */
   if (context.theme.trim() !== '') {
     partes.push(
@@ -389,9 +471,9 @@ export function buildUser(context: ProposalContext): string {
       'são o material do poema. USE-AS. O que não se faz é parafrasear o tema nem',
       'explicá-lo em verso.',
       '',
-      'Prefira sempre o particular ao geral: se o tema diz "bonde", escreva bonde,',
-      'não "trânsito"; se diz "janela alta", o verso olha de cima em vez de falar',
-      'em "altura". Trocar o específico pelo genérico é perder o poema.',
+      'Prefira sempre o particular ao geral: o que o tema nomeia, o verso nomeia',
+      'com a mesma palavra, não com a categoria a que ela pertence nem com um',
+      'termo mais vago. Trocar o específico pelo genérico é perder o poema.',
       '',
       'Teste cada verso antes de entregar: ele caberia em qualquer outro poema?',
       'Então não está usando o tema.',
@@ -399,38 +481,34 @@ export function buildUser(context: ProposalContext): string {
     );
   }
 
-  partes.push('FORMA');
-  partes.push(...formaLinhas(context.spec));
+  partes.push('FORMA', ...formaLinhas(context));
+
   if (context.rhymeTarget !== null && context.rhymeTarget.tail !== '') {
     partes.push(
-      `Rima: o verso pedido precisa terminar rimando em "-${context.rhymeTarget.tail}"`,
-      'A comparação é por som, não por letra: "caça" rima com "massa", "giz" com',
-      '"quis", "mal" com "mau". Grafia diferente com o mesmo som serve.',
+      '',
+      'RIMA PEDIDA',
+      `O verso pedido precisa terminar rimando em "-${context.rhymeTarget.tail}".`,
+      'A rima vai da vogal tônica até o fim do verso, então a terminação inteira',
+      'precisa bater, não só a última letra. A comparação é por som, não por',
+      'letra: grafia diferente com o mesmo som serve.',
       ...(context.usedRhymeWords.length > 0
         ? [
             `NÃO termine com estas palavras, que o poema já usou nesta rima: ${context.usedRhymeWords.join(', ')}.`,
             'Palavra rimando com ela mesma não é rima — é repetição, e o verso é recusado.',
           ]
         : []),
-      '(a rima vai da vogal tônica até o fim do verso, então a terminação inteira',
-      'precisa bater, não só a última letra).',
     );
   }
 
   if (context.before.length > 0 || context.after.length > 0) {
-    partes.push('', 'POEMA ATÉ AQUI');
-    for (const linha of context.before) partes.push(linha === '' ? '(linha vazia)' : linha);
     partes.push(
-      context.kind === 'stanza'
-        ? '>>> a estrofe pedida entra aqui <<<'
-        : '>>> o verso pedido entra aqui <<<',
+      '',
+      'O POEMA ATÉ AQUI',
+      'Cada verso vem com o número, a letra do esquema e, entre colchetes, a medida',
+      'que o motor deu e a terminação da rima. É o poema do autor: a voz a seguir.',
+      '',
+      ...textoLinhas(context),
     );
-    for (const linha of context.after) partes.push(linha === '' ? '(linha vazia)' : linha);
-  }
-
-  if (context.notes.length > 0) {
-    partes.push('', 'PEDIDOS DO AUTOR');
-    for (const nota of context.notes) partes.push(`- ${nota}`);
   }
 
   partes.push('', 'TAREFA');

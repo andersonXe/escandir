@@ -117,7 +117,7 @@ ocupa uma letra do esquema.
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 103 testes no app cobrem o laço de
+implementados, BYOK com chave em IndexedDB. 109 testes no app cobrem o laço de
 proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 
@@ -354,13 +354,37 @@ coisas concretas que carregavam o poema — escreveu "trânsito" onde o tema
 dizia "bonde" — e entregou atmosfera genérica.
 
 O que se evita é a **paráfrase**, não o **material**. A instrução agora manda
-usar o que o tema nomeia, opõe o particular ao geral com esse mesmo exemplo, e
+usar o que o tema nomeia, com a mesma palavra e não com a categoria dela, e
 dá ao modelo um teste para aplicar sozinho: "este verso caberia em qualquer
 outro poema? então não está usando o tema". O tema vem antes da forma no
 pedido, porque é o que enquadra o resto.
 
 Foi o que mais mexeu no **tom**, que era a fraqueza que sobrava depois de
 métrica e rima resolvidas.
+
+Durante um tempo a instrução ilustrava isso com o par bonde/trânsito. Saiu,
+junto com todo exemplo do pedido (ver abaixo): a regra aponta para o tema do
+próprio autor, que está logo acima dela.
+
+## O pedido não tem exemplo
+
+Nenhum verso, palavra ou par de rima de exemplo no pedido à IA — nem para
+ilustrar regra, nem para mostrar formato. Exemplo é o molde mais forte de um
+prompt: houve três decassílabos escandidos ali, sobre tarde e mar, e o formato
+da resposta era mostrado com eles. O modelo levava o assunto e a cadência
+junto com a contagem.
+
+O que ocupa o lugar é o **próprio poema, como dado**. `lib/ai/poema.ts` mede o
+documento inteiro sob pedido, e cada linha chega numerada, com a letra do
+esquema, a medida do motor e a terminação da rima; título de seção e nota vão
+no lugar onde estão. A forma vai campo a campo (medida, tônicas, esquema,
+extensão), como as quatro coisas independentes que ela é. Regra se enuncia;
+formato se mostra com marcadores (`<verso>`). Um teste varre o pedido atrás
+das palavras dos exemplos antigos.
+
+A calibragem que os exemplos faziam não se perdeu: a ferramenta `escandir`
+mostra a divisão silábica dos rascunhos do próprio modelo, sobre o assunto
+certo.
 
 ## Seleção por verso
 

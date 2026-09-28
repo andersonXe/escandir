@@ -2,6 +2,7 @@ import { FORMAS, ptBR, type Rhyme } from '@escandir/engine';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildSystem, buildUser, SEPARATOR, type ProposalContext } from '../src/lib/ai/prompt.js';
+import { describePoem, plainLines } from '../src/lib/ai/poema.js';
 import { evaluate, propose, splitCandidates } from '../src/lib/ai/propose.js';
 import { ESCANDIR, runTool } from '../src/lib/ai/tools.js';
 import type { CompletionResult } from '../src/lib/ai/types.js';
@@ -20,7 +21,9 @@ function contexto(patch: Partial<ProposalContext> = {}): ProposalContext {
     before: [],
     after: [],
     theme: '',
-    notes: [],
+    title: '',
+    scheme: '',
+    declaredVerses: 0,
     task: { kind: 'write' },
     verses: 0,
     candidates: 3,
@@ -146,8 +149,24 @@ describe('o texto do pedido', () => {
     const system = buildSystem(contexto());
     expect(system).toContain('PARA NA ÚLTIMA TÔNICA');
     expect(system).toContain('Elisão entre palavras');
-    // Exemplo escandido vale mais que regra enunciada.
-    expect(system).toContain('breo|MAR');
+  });
+
+  it('não traz verso de exemplo — o modelo copiava o assunto junto', () => {
+    const tudo = [
+      contexto(),
+      contexto({ kind: 'stanza', verses: 4 }),
+      contexto({ theme: 'uma fábrica fechada' }),
+    ].flatMap((c) => [buildSystem(c), buildUser(c)]);
+    for (const texto of tudo) {
+      expect(texto).not.toMatch(/(?<!\p{L})(mar|lugar|trazia|bonde|trânsito|coração|massa|giz)(?!\p{L})/u);
+      expect(texto).not.toContain('|');
+    }
+  });
+
+  it('o formato se mostra com marcadores, não com versos', () => {
+    const system = buildSystem(contexto());
+    expect(system).toContain('<verso>');
+    expect(system).toContain(SEPARATOR);
   });
 
   it('declara a forma e a rima pedidas', () => {
@@ -159,7 +178,7 @@ describe('o texto do pedido', () => {
 
   it('marca onde o verso entra, entre o que veio antes e o que vem depois', () => {
     const user = buildUser(
-      contexto({ before: ['a tarde desce lenta sobre o mar'], after: ['e nada mais se move'] }),
+      contexto({ before: plainLines(['a tarde desce lenta sobre o mar']), after: plainLines(['e nada mais se move']) }),
     );
     expect(user).toContain('a tarde desce lenta sobre o mar');
     expect(user).toContain('>>> o verso pedido entra aqui <<<');
@@ -209,10 +228,74 @@ describe('o texto do pedido', () => {
     expect(user).toContain('sem o resto do verso em volta');
   });
 
-  it('leva os comentários do autor', () => {
-    const user = buildUser(contexto({ notes: ['aqui precisa de uma imagem de água'] }));
-    expect(user).toContain('PEDIDOS DO AUTOR');
-    expect(user).toContain('imagem de água');
+  it('leva os comentários do autor no lugar onde estão', () => {
+    const linhas = describePoem(
+      [
+        { kind: 'verse', text: 'a tarde desce lenta sobre o mar' },
+        { kind: 'note', text: 'aqui precisa de uma imagem de água' },
+      ],
+      FORMAS.heroico,
+      '',
+    );
+    const user = buildUser(contexto({ before: linhas }));
+    const nota = user.indexOf('nota do autor: aqui precisa de uma imagem de água');
+    expect(nota).toBeGreaterThan(user.indexOf('sobre o mar'));
+    expect(nota).toBeLessThan(user.indexOf('>>> o verso pedido'));
+  });
+});
+
+describe('o poema como dado', () => {
+  const doc = [
+    { kind: 'heading' as const, text: 'Porto' },
+    { kind: 'verse' as const, text: 'a tarde desce lenta sobre o mar' },
+    { kind: 'note' as const, text: 'mais luz' },
+    { kind: 'verse' as const, text: 'e o vento esquece o nome que ele trazia' },
+    { kind: 'verse' as const, text: '' },
+    { kind: 'verse' as const, text: 'e nada mais se move no lugar' },
+  ];
+
+  it('mede cada verso: letra do esquema, medida, problema, terminação', () => {
+    const [titulo, mar, nota, trazia, vazio, lugar] = describePoem(doc, FORMAS.heroico, 'ABBA');
+    expect(titulo).toMatchObject({ kind: 'heading', letter: '', count: null });
+    expect(mar).toMatchObject({ letter: 'A', count: 10, problem: null, rhyme: 'ar' });
+    // Nota não consome letra: o verso seguinte é o B.
+    expect(nota?.letter).toBe('');
+    expect(trazia).toMatchObject({ letter: 'B', count: 11, problem: 'sobra 1 sílaba' });
+    expect(vazio).toMatchObject({ letter: 'B', count: null });
+    expect(lugar).toMatchObject({ letter: 'A', count: 10, rhyme: 'ar' });
+  });
+
+  it('o pedido leva título, forma campo a campo e o texto medido', () => {
+    const medido = describePoem(doc, FORMAS.heroico, 'ABBA');
+    const user = buildUser(
+      contexto({
+        title: 'Porto',
+        scheme: 'ABBA',
+        declaredVerses: 4,
+        before: medido.slice(0, 4),
+        after: medido.slice(5),
+      }),
+    );
+    expect(user).toContain('TÍTULO\nPorto');
+    expect(user).toContain('medida: 10 sílabas poéticas');
+    expect(user).toContain('tônicas obrigatórias: 6ª, 10ª');
+    expect(user).toContain('esquema de rima: ABBA');
+    expect(user).toContain('extensão: 4 versos, 3 escritos');
+    expect(user).toContain('  1 A [10 · -ar] a tarde desce lenta sobre o mar');
+    expect(user).toContain('[11, sobra 1 sílaba · -ia]');
+    expect(user).toContain('título de seção: Porto');
+    expect(user).toContain('>>> o verso pedido entra aqui <<< (verso 3, letra B)');
+    expect(user).toContain('  4 A [10 · -ar] e nada mais se move no lugar');
+  });
+
+  it('o título padrão não é do autor e não vai', () => {
+    expect(buildUser(contexto({ title: 'sem título' }))).not.toContain('TÍTULO');
+  });
+
+  it('sem esquema e sem extensão, a forma diz que são livres', () => {
+    const user = buildUser(contexto());
+    expect(user).toContain('esquema de rima: sem rima fixa');
+    expect(user).toContain('extensão: livre');
   });
 });
 
@@ -501,10 +584,11 @@ describe('o tema do poema', () => {
     expect(user).not.toContain('Não repita estes');
   });
 
-  it('opõe o particular ao geral com exemplo, que é o erro concreto', () => {
+  it('opõe o particular ao geral apontando para o tema, sem exemplo inventado', () => {
     const user = buildUser(comTema);
-    expect(user).toContain('escreva bonde');
-    expect(user).toContain('não "trânsito"');
+    expect(user).toContain('particular ao geral');
+    expect(user).toContain('mesma palavra');
+    expect(user).not.toContain('bonde');
   });
 
   it('dá ao modelo um teste para aplicar sozinho', () => {
@@ -522,8 +606,9 @@ describe('o tema do poema', () => {
   });
 
   it('é permanente, ao contrário da nota, que é presa a um lugar', () => {
-    const user = buildUser(contexto({ theme: 'o mar', notes: ['aqui falta uma imagem'] }));
+    const nota = describePoem([{ kind: 'note', text: 'aqui falta uma imagem' }], FORMAS.heroico, '');
+    const user = buildUser(contexto({ theme: 'o porto', before: nota }));
     expect(user).toContain('DO QUE O POEMA TRATA');
-    expect(user).toContain('PEDIDOS DO AUTOR');
+    expect(user).toContain('nota do autor: aqui falta uma imagem');
   });
 });

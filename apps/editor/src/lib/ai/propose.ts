@@ -25,6 +25,7 @@ import {
 import type { Lexicon } from '@escandir/lexicon';
 
 import { lastWord, schemeChecks } from './esquema.js';
+import { diagnose } from './poema.js';
 import { buildSystem, buildUser, SEPARATOR, type ProposalContext } from './prompt.js';
 import { RIMAS, rimasTool, runRimas } from './rimas.js';
 import { runTool, toolsFor, type Frame, type SchemeFrame } from './tools.js';
@@ -151,15 +152,7 @@ function describe(
     }
     return spec.syllables > 0 ? `${spec.syllables} sílabas` : 'verso livre';
   }
-  const diagnostic = quebrado.assessment?.diagnostics[0];
-  if (diagnostic === undefined) return 'fora da forma';
-  if (diagnostic.kind === 'count') {
-    return diagnostic.delta > 0
-      ? `sobra${diagnostic.delta === 1 ? ' 1 sílaba' : `m ${diagnostic.delta} sílabas`}`
-      : `falta${-diagnostic.delta === 1 ? ' 1 sílaba' : `m ${-diagnostic.delta} sílabas`}`;
-  }
-  if (diagnostic.kind === 'stress') return `tônica na ${diagnostic.expected}ª`;
-  return 'fora da forma';
+  return diagnose(quebrado.assessment) ?? 'fora da forma';
 }
 
 /**

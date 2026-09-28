@@ -30,6 +30,7 @@
   import { actionFor, themeAction, type Action } from './lib/ai/action.js';
   import type { SchemeLead } from './lib/ai/esquema.js';
   import type { ProposalContext, Task } from './lib/ai/prompt.js';
+  import { describePoem } from './lib/ai/poema.js';
   import { propose, type Candidate } from './lib/ai/propose.js';
   import { providerById } from './lib/ai/registry.js';
   import type { ProviderConfig, Usage } from './lib/ai/types.js';
@@ -601,15 +602,18 @@
     instruction: string,
   ): ProposalContext {
     const verses = action.verses ?? (forma.verses > 0 ? forma.verses : replaces >= 2 ? replaces : 0);
+    const medido = describePoem(lines, forma.spec, forma.rhyme);
     return {
       kind: 'stanza',
       spec: { syllables: forma.spec.syllables, requiredStresses: [...forma.spec.requiredStresses] },
       // A rima de cada verso sai do esquema, dentro do bloco: alvo único não serve.
       rhymeTarget: null,
-      before: lines.slice(0, insertAt).map((l) => l.text),
-      after: lines.slice(insertAt + replaces).map((l) => l.text),
+      before: medido.slice(0, insertAt),
+      after: medido.slice(insertAt + replaces),
+      title,
       theme: tema,
-      notes: lines.filter((l) => l.kind === 'note' && l.text.trim() !== '').map((l) => l.text),
+      scheme: forma.rhyme,
+      declaredVerses: forma.verses,
       task: {
         kind: 'poem',
         source,
@@ -694,16 +698,17 @@
 
   function contextFor(index: number, action: Action): ProposalContext {
     const verses = action.kind === 'stanza' ? emptyRunFrom(index) : 0;
+    const medido = describePoem(lines, forma.spec, forma.rhyme);
     return {
       kind: action.kind,
       spec: { syllables: forma.spec.syllables, requiredStresses: [...forma.spec.requiredStresses] },
       rhymeTarget: rhymeTargetFor(index),
-      before: lines.slice(0, index).map((l) => l.text),
-      after: lines.slice(index + (action.kind === 'stanza' ? verses : 1)).map((l) => l.text),
-      // Todo comentário do documento é instrução; o que está na linha pedida
-      // também, e por isso ela não entra como "verso parcial".
+      before: medido.slice(0, index),
+      after: medido.slice(index + (action.kind === 'stanza' ? verses : 1)),
+      title,
       theme: tema,
-      notes: lines.filter((l) => l.kind === 'note' && l.text.trim() !== '').map((l) => l.text),
+      scheme: forma.rhyme,
+      declaredVerses: forma.verses,
       task: taskFor(index, action),
       usedRhymeWords: usedRhymeWordsFor(index),
       verses,
