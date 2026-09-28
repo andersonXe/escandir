@@ -104,11 +104,20 @@ const usadas = ordem.length;
 // Os poemas vêm depois das legendas: o que as duas têm já entrou pela
 // frequência da fala, que é a que ordena. Aqui entra o que só o verso usa.
 console.log('lendo o acervo de poesia...');
-for (const palavra of lista('poesia.txt')) entra(palavra);
+const naPoesia = new Map();
+for (const linha of readFileSync(new URL('../data/poesia.txt', import.meta.url), 'utf8').split(/\r?\n/)) {
+  if (linha.startsWith('#')) continue;
+  const [bruta, n] = linha.split(' ');
+  const palavra = normalizar(bruta ?? '');
+  if (palavra === null) continue;
+  naPoesia.set(palavra, (naPoesia.get(palavra) ?? 0) + Number(n ?? 0));
+  entra(palavra);
+}
 const poeticas = ordem.length - usadas;
 
-let curadas = 0;
-for (const palavra of lista('acrescentar.txt')) if (entra(palavra, true)) curadas += 1;
+const curadasSet = new Set();
+for (const palavra of lista('acrescentar.txt')) if (entra(palavra, true)) curadasSet.add(palavra);
+const curadas = curadasSet.size;
 
 /*
  * O resto do dicionário entra depois, na faixa mais rara.
@@ -130,16 +139,40 @@ console.log(
  * a mediana aparece 3. Faixa por posto dá grupos de tamanho comparável, que é
  * o que serve para a interface oferecer "comum" e "raro" lado a lado.
  */
-function faixa(posto) {
-  // A faixa mede a fala: o que não aparece nas legendas — só da poesia, só do
-  // dicionário — cai todo na última, e os cortes valem só entre as faladas.
-  if (posto >= usadas) return 5;
+function faixaDaFala(posto) {
+  // Os cortes valem só entre as faladas; o que não aparece nas legendas não
+  // tem posto de fala.
+  if (posto >= usadas) return null;
   const cortes = [0.02, 0.1, 0.3, 0.6];
   const p = posto / usadas;
   for (let i = 0; i < cortes.length; i += 1) {
     if (p < cortes[i]) return i;
   }
   return cortes.length;
+}
+
+/*
+ * Duas faixas além da fala, porque o raro não é uma coisa só.
+ *
+ * Tradição (5): a poesia usa — duas vezes ao menos, para uma ocorrência
+ * solta não bastar — e a fala quase não, ou nunca: "plagas", "ardentias".
+ * Dicionário (6): só o corretor conhece, e é em boa parte termo técnico:
+ * "diplacanto", "melixanto". Juntas numa faixa só, a ferramenta de rimas
+ * oferecia uma coisa ao lado da outra.
+ *
+ * Os números precisam casar com `BAND_TRADITION` e `BAND_DICTIONARY` em
+ * `src/index.ts`.
+ */
+const TRADICAO = 5;
+const DICIONARIO = 6;
+const RARA = 4;
+
+function faixa(posto, palavra) {
+  const fala = faixaDaFala(posto);
+  if ((naPoesia.get(palavra) ?? 0) >= 2 && (fala === null || fala >= RARA)) return TRADICAO;
+  if (fala !== null) return fala;
+  // Curadoria à mão é escolha, não sobra de dicionário.
+  return curadasSet.has(palavra) ? RARA : DICIONARIO;
 }
 
 console.log('escandindo...');
@@ -177,7 +210,7 @@ ordem.forEach((palavra, posto) => {
     palavra,
     reading.syllables.length,
     reading.syllables.length - tonica,
-    faixa(posto),
+    faixa(posto, palavra),
   ];
 
   const lista = porSom.get(rima.sound);

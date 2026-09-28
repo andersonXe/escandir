@@ -33,6 +33,7 @@ const palavras: LexiconEntry[] = [
   { word: 'caça', syllables: 2, stressFromEnd: 2, band: 2 },
   { word: 'alfazema', syllables: 4, stressFromEnd: 2, band: 5 },
   { word: 'taça', syllables: 2, stressFromEnd: 2, band: 4 },
+  { word: 'bocaça', syllables: 3, stressFromEnd: 2, band: 6 },
 ];
 
 describe('o dicionário de rimas na mão do modelo', () => {
@@ -42,10 +43,18 @@ describe('o dicionário de rimas na mão do modelo', () => {
       total: number;
       palavras: Record<string, string[]>;
     };
-    expect(total).toBe(5);
+    expect(total).toBe(6);
     expect([...(grupos['comuns'] ?? [])].sort()).toEqual(['massa', 'praça']);
     expect(grupos['correntes']).toEqual(['caça']);
-    expect([...(grupos['raras'] ?? [])].sort()).toEqual(['alfazema', 'taça']);
+    expect(grupos['raras']).toEqual(['taça']);
+  });
+
+  it('a tradição vem à parte do raro, e o dicionário técnico por último', async () => {
+    const cru = await runRimas('{}', lexiconFake(palavras), alvo('aça'));
+    const { palavras: grupos } = JSON.parse(cru) as { palavras: Record<string, string[]> };
+    expect(grupos['tradicao']).toEqual(['alfazema']);
+    expect(grupos['dicionario']).toEqual(['bocaça']);
+    expect(Object.keys(grupos).at(-1)).toBe('dicionario');
   });
 
   it('cada consulta é uma amostra nova, não as mesmas primeiras do léxico', async () => {
@@ -95,7 +104,7 @@ describe('o dicionário de rimas na mão do modelo', () => {
 
   it('argumento torto não derruba a proposta', async () => {
     const cru = await runRimas('isto não é json', lexiconFake(palavras), alvo('aça'));
-    expect(JSON.parse(cru).total).toBe(5);
+    expect(JSON.parse(cru).total).toBe(6);
   });
 
   it('avisa quando o filtro não deixou nada, sem fingir resultado', async () => {

@@ -21,15 +21,19 @@
  * não ordena por proximidade de sentido, que é decisão de produto em aberto.
  */
 
-import type { Lexicon, LexiconEntry } from '@escandir/lexicon';
+import { BAND_DICTIONARY, BAND_TRADITION, type Lexicon, type LexiconEntry } from '@escandir/lexicon';
 import type { MetricSpec, Rhyme } from '@escandir/engine';
 
 import type { ToolDefinition } from './types.js';
 
 export const RIMAS = 'rimas';
 
-/** Quantas de cada faixa entram numa consulta. */
-const AMOSTRA = { comuns: 20, correntes: 30, raras: 20 } as const;
+/**
+ * Quantas de cada grupo entram numa consulta. O dicionário vem por último e
+ * em poucas: é em boa parte termo técnico, que o léxico guarda para a palavra
+ * rara não sumir, mas que raramente serve a um verso.
+ */
+const AMOSTRA = { comuns: 20, correntes: 25, tradicao: 20, raras: 15, dicionario: 8 } as const;
 
 export function rimasTool(rhymeTarget: Rhyme, spec: MetricSpec): ToolDefinition {
   return {
@@ -39,8 +43,10 @@ export function rimasTool(rhymeTarget: Rhyme, spec: MetricSpec): ToolDefinition 
       'grafias diferentes com o mesmo som entram juntas.',
       'O grupo "da_obra" traz as que o autor já escreveu no tema, no título, nos',
       'versos ou nos comentários — são as mais ligadas ao poema; olhe-as primeiro.',
-      'As outras são uma amostra ao acaso do dicionário, por faixa de frequência:',
-      'cada consulta traz palavras diferentes, então consulte de novo se nenhuma',
+      'As outras são uma amostra ao acaso: "comuns", "correntes" e "raras" pela',
+      'frequência na fala; "tradicao", palavras que a poesia de língua portuguesa',
+      'usa e a fala quase não; "dicionario", vocabulário técnico, só em último caso.',
+      'Cada consulta traz palavras diferentes, então consulte de novo se nenhuma',
       'servir ao tema. Escolha pela obra, não pela primeira da lista.',
       spec.syllables > 0
         ? `O verso tem ${spec.syllables} sílabas, então a última palavra precisa caber no que sobrar.`
@@ -119,23 +125,31 @@ function sortear<T>(itens: readonly T[], n: number, random: () => number): T[] {
   return copia.slice(0, limite);
 }
 
-/** Amostra por faixa de frequência: comuns e raras lado a lado, sem ranquear. */
+type Grupo = keyof typeof AMOSTRA;
+
+function grupoDe(band: number): Grupo {
+  if (band === BAND_TRADITION) return 'tradicao';
+  if (band === BAND_DICTIONARY) return 'dicionario';
+  if (band <= 1) return 'comuns';
+  if (band <= 3) return 'correntes';
+  return 'raras';
+}
+
+/**
+ * Amostra por grupo: comuns e raras lado a lado, sem ranquear. A ordem das
+ * chaves é a ordem em que o modelo lê — o dicionário por último.
+ */
 function amostrar(entries: readonly LexiconEntry[], random: () => number): Record<string, string[]> {
-  const comuns: string[] = [];
-  const correntes: string[] = [];
-  const raras: string[] = [];
+  const porGrupo = new Map<Grupo, string[]>();
   for (const entry of entries) {
-    if (entry.band <= 1) comuns.push(entry.word);
-    else if (entry.band <= 3) correntes.push(entry.word);
-    else raras.push(entry.word);
+    const grupo = grupoDe(entry.band);
+    porGrupo.set(grupo, [...(porGrupo.get(grupo) ?? []), entry.word]);
   }
   const grupos: Record<string, string[]> = {};
-  const c = sortear(comuns, AMOSTRA.comuns, random);
-  const m = sortear(correntes, AMOSTRA.correntes, random);
-  const r = sortear(raras, AMOSTRA.raras, random);
-  if (c.length > 0) grupos['comuns'] = c;
-  if (m.length > 0) grupos['correntes'] = m;
-  if (r.length > 0) grupos['raras'] = r;
+  for (const grupo of Object.keys(AMOSTRA) as Grupo[]) {
+    const escolhidas = sortear(porGrupo.get(grupo) ?? [], AMOSTRA[grupo], random);
+    if (escolhidas.length > 0) grupos[grupo] = escolhidas;
+  }
   return grupos;
 }
 

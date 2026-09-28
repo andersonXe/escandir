@@ -17,9 +17,23 @@ export interface LexiconEntry {
   readonly syllables: number;
   /** Tônica contada do fim: 1 oxítona, 2 paroxítona, 3 proparoxítona. */
   readonly stressFromEnd: number;
-  /** 0 muito comum … 5 só de dicionário. */
+  /**
+   * De onde a palavra vem, e o quanto é comum. De 0 a 4, frequência na fala,
+   * do muito comum ao raro. `BAND_TRADITION`: a poesia usa, a fala quase não.
+   * `BAND_DICTIONARY`: só o corretor ortográfico conhece.
+   */
   readonly band: number;
 }
+
+/**
+ * Palavra do acervo de poesia que é rara ou ausente na fala: "plagas",
+ * "ardentias", "dardeja". Separada do resto do raro porque o resto do raro é,
+ * em grande parte, termo técnico do dicionário — e rimar "pranto" com
+ * "diplacanto" não serve a ninguém.
+ */
+export const BAND_TRADITION = 5;
+/** Só o corretor conhece: a maior parte é vocabulário técnico. */
+export const BAND_DICTIONARY = 6;
 
 export interface RhymeQuery {
   /** Chave fonêmica da terminação, vinda de `rhymeOf(...).sound`. */

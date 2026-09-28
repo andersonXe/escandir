@@ -124,7 +124,7 @@ cobra uma rima por letra em vez de um alvo único para todos os versos.
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 118 testes no app cobrem o laço de
+implementados, BYOK com chave em IndexedDB. 119 testes no app cobrem o laço de
 proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 
@@ -355,6 +355,14 @@ reconhece dez milhões de formas, quase todas conjugações que ninguém procura
 As candidatas vêm das legendas (o que se fala), do acervo de poesia em
 `data/poesia.txt` (o que se escreve em verso), dos radicais do próprio
 corretor e de `data/acrescentar.txt`; `data/excluir.txt` vence tudo.
+
+**O raro não é uma coisa só.** A faixa de cada palavra diz de onde ela vem: de
+0 a 4, frequência na fala; 5, **tradição** — a poesia usa pelo menos duas
+vezes e a fala quase não ("fragas", "urdia", "antevia"); 6, **dicionário** — só
+o corretor conhece, e é em boa parte termo técnico ("etmoidectomia"). Numa
+faixa só, a ferramenta de rimas oferecia "pranto" ao lado de "diplacanto". Hoje
+são 11 mil palavras de tradição e 260 mil só de dicionário, que a ferramenta
+mostra por último e em poucas.
 
 A fonte anterior era uma lista só com os radicais do mesmo dicionário. Medido
 contra poetas **fora** do acervo, a fração de palavras em fim de verso ausente
