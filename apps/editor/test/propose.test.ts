@@ -634,3 +634,78 @@ describe('o tema do poema', () => {
     expect(system).toContain('Cada proposta termina numa palavra diferente');
   });
 });
+
+describe('compor de trás para frente', () => {
+  const MAR = 'a tarde desce lenta sobre o mar';
+  const LUGAR = 'e nada mais se move no lugar';
+  const TRAZIA = 'e o vento esquece o nome que trazia';
+  const SABIA = 'a pedra sabe o pouco que sabia';
+  const nada = { texts: [], rhymes: [] };
+
+  // ABBA com só o 4º escrito: o 1º, que é A, tem de rimar com ele.
+  const fechoPrimeiro = contexto({
+    kind: 'stanza',
+    task: {
+      kind: 'stanza',
+      verses: 3,
+      block: { scheme: 'ABBA', lead: nada, trail: { texts: [LUGAR], rhymes: [alvo('ar')] } },
+    },
+    verses: 3,
+    candidates: 2,
+  });
+
+  it('o verso antes do fecho rima com ele', () => {
+    const [bom] = evaluate([[MAR, TRAZIA, SABIA]], fechoPrimeiro);
+    expect(bom?.ok).toBe(true);
+  });
+
+  it('e é recusado quando não rima, com a frase apontando o verso escrito', () => {
+    const [fora] = evaluate([[SABIA, TRAZIA, SABIA.replace('sabia', 'sorria')]], fechoPrimeiro);
+    expect(fora?.ok).toBe(false);
+    expect(fora?.detail).toContain('verso 1');
+    expect(fora?.detail).toContain('verso já escrito');
+  });
+
+  it('não pode terminar na palavra do fecho', () => {
+    const [repete] = evaluate([['e nada mais se move em seu lugar', TRAZIA, SABIA]], fechoPrimeiro);
+    expect(repete?.ok).toBe(false);
+    expect(repete?.detail).toContain('repete "lugar"');
+  });
+
+  it('o pedido diz que a rima vem de um verso que está depois', () => {
+    const user = buildUser(fechoPrimeiro);
+    expect(user).toContain(`o 1º verso rima em "-ar", com "${LUGAR}", que vem depois`);
+  });
+
+  it('a régua confere contra o fecho também', () => {
+    const cru = runTool(ESCANDIR, JSON.stringify({ versos: [SABIA, TRAZIA, SABIA] }), FORMAS.heroico, null, undefined, {
+      scheme: 'ABBA',
+      lead: nada,
+      trail: { texts: [LUGAR], rhymes: [alvo('ar')] },
+    });
+    const { medidas } = JSON.parse(cru) as { medidas: { cabe: boolean; problema?: string }[] };
+    expect(medidas[0]?.cabe).toBe(false);
+    expect(medidas[0]?.problema).toContain(LUGAR);
+  });
+
+  it('com verso antes e depois, vale o de antes — a escolha de sempre', () => {
+    const [bom] = evaluate(
+      [[TRAZIA]],
+      contexto({
+        kind: 'stanza',
+        task: {
+          kind: 'stanza',
+          verses: 1,
+          block: {
+            scheme: 'ABBA',
+            lead: { texts: [MAR], rhymes: [alvo('ar')] },
+            trail: { texts: [SABIA, LUGAR], rhymes: [alvo('ia'), alvo('ar')] },
+          },
+        },
+        verses: 1,
+      }),
+    );
+    // O 2º é B: não tem B antes, então rima com o 3º, que está depois.
+    expect(bom?.ok).toBe(true);
+  });
+});

@@ -114,10 +114,17 @@ régua e o juiz usam a mesma função, para um não aprovar o que o outro recusa
 O bloco vem sem linha em branco entre estrofes: no editor, linha vazia de verso
 ocupa uma letra do esquema.
 
+**A rima olha para os dois lados.** Poeta compõe de trás para frente: escreve o
+fecho primeiro e rima os anteriores com ele. O alvo de um verso é o anterior
+mais próximo de mesma letra; não havendo nenhum antes, o primeiro depois. Vale
+para o verso solto (`rhymeTargetFor`) e para o bloco (`schemeChecks` com
+`trail`) — inclusive a estrofe de linhas vazias no meio do poema, que agora
+cobra uma rima por letra em vez de um alvo único para todos os versos.
+
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 112 testes no app cobrem o laço de
+implementados, BYOK com chave em IndexedDB. 118 testes no app cobrem o laço de
 proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 

@@ -23,7 +23,7 @@ import {
   type Rhyme,
 } from '@escandir/engine';
 
-import { lastWord, schemeChecks, type SchemeLead } from './esquema.js';
+import { insideBlock, lastWord, schemeChecks, writtenPartner, type SchemeLead } from './esquema.js';
 import type { ToolDefinition } from './types.js';
 
 const analyzer = createAnalyzer(ptBR);
@@ -53,6 +53,8 @@ function encaixar(texto: string, frame?: Frame): string {
 export interface SchemeFrame {
   readonly scheme: string;
   readonly lead: SchemeLead;
+  /** Versos já escritos depois do bloco. Só com bloco de tamanho fixo. */
+  readonly trail?: SchemeLead;
 }
 
 export function toolsFor(
@@ -190,6 +192,7 @@ function conferirEsquema(
     medidas.map((m) => m.rhyme),
     scheme.scheme,
     scheme.lead,
+    scheme.trail,
   );
   return medidas.map(({ medida, rhyme }, i) => {
     const check = checks[i];
@@ -199,7 +202,10 @@ function conferirEsquema(
       if (check.used.includes(palavra)) {
         falhas.push(`repete "${palavra}", que já fecha outro verso da letra ${check.letter}`);
       } else if (check.target !== null && !rhymes(rhyme, check.target)) {
-        const com = check.ref !== null && check.ref >= 0 ? `o ${check.ref + 1}º verso` : 'o verso já escrito';
+        const com =
+          check.ref !== null && insideBlock(check, medidas.length)
+            ? `o ${check.ref + 1}º verso`
+            : `o verso já escrito "${writtenPartner(check, medidas.length, scheme.lead, scheme.trail)}"`;
         falhas.push(`letra ${check.letter}: rima em "-${rhyme.tail}", precisa rimar com ${com} ("-${check.target.tail}")`);
       }
     }

@@ -497,14 +497,25 @@
   function rhymeTargetFor(index: number): Rhyme | null {
     const letra = rhymeFor(index);
     if (letra === '') return null;
-    for (let i = index - 1; i >= 0; i -= 1) {
+    const rimaDe = (i: number): Rhyme | null => {
       const line = lines[i];
-      if (line === undefined || line.kind !== 'verse') continue;
-      if (rhymeFor(i) !== letra || line.text.trim() === '') continue;
+      if (line === undefined || line.kind !== 'verse') return null;
+      if (rhymeFor(i) !== letra || line.text.trim() === '') return null;
       const reading = scanVerse(line.text, ptBR, rhymeAnalyzer, { spec: forma.spec }).best;
-      if (reading === null) continue;
+      if (reading === null) return null;
       const rima = rhymeOf(reading, line.text, ptBR.prosody);
-      if (rima.sound !== '') return rima;
+      return rima.sound === '' ? null : rima;
+    };
+    for (let i = index - 1; i >= 0; i -= 1) {
+      const rima = rimaDe(i);
+      if (rima !== null) return rima;
+    }
+    // Nada antes: procura depois. Há quem escreva o fecho primeiro e rime os
+    // anteriores com ele — olhando só para trás, o verso 11 não via que tinha
+    // de rimar com o 14 já escrito. A mesma escolha de `schemeChecks`.
+    for (let i = index + 1; i < lines.length; i += 1) {
+      const rima = rimaDe(i);
+      if (rima !== null) return rima;
     }
     return null;
   }
@@ -597,7 +608,19 @@
    * editor ela ocupa uma letra do esquema.
    */
   function leadBefore(insertAt: number): SchemeLead {
-    const versos = lines.slice(0, insertAt).filter((line) => line.kind === 'verse');
+    return schemeLines(lines.slice(0, insertAt));
+  }
+
+  /**
+   * Os versos depois do bloco. O esquema do bloco rima com eles também: há quem
+   * escreva o fecho primeiro e preencha para trás.
+   */
+  function trailAfter(from: number): SchemeLead {
+    return schemeLines(lines.slice(from));
+  }
+
+  function schemeLines(trecho: readonly EditorLine[]): SchemeLead {
+    const versos = trecho.filter((line) => line.kind === 'verse');
     return {
       texts: versos.map((line) => line.text),
       rhymes: versos.map((line) => {
@@ -636,6 +659,9 @@
         verses,
         scheme: forma.rhyme,
         lead: leadBefore(insertAt),
+        // Só com extensão fixa: é pela posição que se sabe a letra de cada
+        // verso depois do bloco.
+        ...(verses > 0 ? { trail: trailAfter(insertAt + replaces) } : {}),
       },
       usedRhymeWords: [],
       verses,
@@ -670,8 +696,17 @@
     switch (action.id) {
       case 'write-verse':
         return { kind: 'write' };
-      case 'write-stanza':
-        return { kind: 'stanza', verses: emptyRunFrom(index) };
+      case 'write-stanza': {
+        const verses = emptyRunFrom(index);
+        if (forma.rhyme === '') return { kind: 'stanza', verses };
+        // Cada verso da estrofe tem a sua letra, e rima com o que já está
+        // escrito antes ou depois dela.
+        return {
+          kind: 'stanza',
+          verses,
+          block: { scheme: forma.rhyme, lead: leadBefore(index), trail: trailAfter(index + verses) },
+        };
+      }
       case 'complete-verse':
         return { kind: 'complete', partial: text };
       case 'fix-verse':
@@ -714,17 +749,24 @@
   function contextFor(index: number, action: Action): ProposalContext {
     const verses = action.kind === 'stanza' ? emptyRunFrom(index) : 0;
     const medido = describePoem(lines, forma.spec, forma.rhyme);
+    const task = taskFor(index, action);
+    // O que a proposta substitui sai da obra: vai na tarefa, não duas vezes.
+    // Trecho marcado ocupa o que foi marcado — a sequência de linhas vazias a
+    // partir dele é zero, e a obra repetia o trecho depois do marcador.
+    const ocupa = task.kind === 'passage' ? task.original.length : action.kind === 'stanza' ? verses : 1;
     return {
       kind: action.kind,
       spec: { syllables: forma.spec.syllables, requiredStresses: [...forma.spec.requiredStresses] },
-      rhymeTarget: rhymeTargetFor(index),
+      // Estrofe com esquema tem uma rima por letra, cobrada no bloco: um alvo
+      // único diria ao modelo que todos os versos rimam com a mesma coisa.
+      rhymeTarget: task.kind === 'stanza' && task.block !== undefined ? null : rhymeTargetFor(index),
       before: medido.slice(0, index),
-      after: medido.slice(index + (action.kind === 'stanza' ? verses : 1)),
+      after: medido.slice(index + ocupa),
       title,
       theme: tema,
       scheme: forma.rhyme,
       declaredVerses: forma.verses,
-      task: taskFor(index, action),
+      task,
       usedRhymeWords: usedRhymeWordsFor(index),
       verses,
       candidates: action.kind === 'stanza' ? 2 : 4,

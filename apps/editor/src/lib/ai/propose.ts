@@ -24,7 +24,7 @@ import {
 
 import type { Lexicon } from '@escandir/lexicon';
 
-import { lastWord, schemeChecks } from './esquema.js';
+import { insideBlock, lastWord, schemeChecks } from './esquema.js';
 import { diagnose } from './poema.js';
 import { buildSystem, buildUser, SEPARATOR, type ProposalContext } from './prompt.js';
 import { RIMAS, rimasTool, runRimas, wordsOf } from './rimas.js';
@@ -186,8 +186,20 @@ function pareceProposta(candidate: Candidate, spec: MetricSpec): boolean {
 
 function schemeOf(context: ProposalContext): SchemeFrame | undefined {
   const task = context.task;
-  if (task.kind !== 'poem') return undefined;
-  return { scheme: task.scheme, lead: task.lead };
+  if (task.kind === 'poem') {
+    return { scheme: task.scheme, lead: task.lead, ...(task.trail === undefined ? {} : { trail: task.trail }) };
+  }
+  // Estrofe no meio do poema com esquema: cada verso tem a sua letra, e o alvo
+  // de um único verso não serve para os outros.
+  if (task.kind === 'stanza' && task.block !== undefined && task.block.scheme !== '') return task.block;
+  return undefined;
+}
+
+/** Versos que o bloco tem de ter. `0` = livre. */
+function versosPedidos(context: ProposalContext): number {
+  const task = context.task;
+  if (task.kind === 'poem' || task.kind === 'stanza') return task.verses;
+  return 0;
 }
 
 /**
@@ -202,6 +214,7 @@ function evaluateBlock(linhas: readonly string[], context: ProposalContext, sche
     medidos.map((m) => m.rhyme),
     scheme.scheme,
     scheme.lead,
+    scheme.trail,
   );
   const lines = medidos.map((line, i): CandidateLine => {
     const check = checks[i];
@@ -214,13 +227,14 @@ function evaluateBlock(linhas: readonly string[], context: ProposalContext, sche
     if (!line.fitsMeter) problem = describe([line], context.spec);
     else if (repete) problem = `repete "${palavra}"`;
     else if (!rima && check !== undefined && check.target !== null) {
-      const com = check.ref !== null && check.ref >= 0 ? `o ${check.ref + 1}º` : 'o verso já escrito';
+      const com =
+        check.ref !== null && insideBlock(check, medidos.length) ? `o ${check.ref + 1}º` : 'o verso já escrito';
       problem = `rima em -${line.rhyme.tail}, devia rimar com ${com} (-${check.target.tail})`;
     }
     return { ...line, fitsRhyme, ...(problem === undefined ? {} : { problem: `verso ${i + 1}: ${problem}` }) };
   });
 
-  const pedidos = context.task.kind === 'poem' ? context.task.verses : 0;
+  const pedidos = versosPedidos(context);
   const tamanhoCerto = pedidos <= 0 || lines.length === pedidos;
   const quebrado = lines.find((line) => line.problem !== undefined);
   const ok = tamanhoCerto && quebrado === undefined;

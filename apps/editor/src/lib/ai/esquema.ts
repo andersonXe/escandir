@@ -33,38 +33,58 @@ export interface SchemeLead {
 
 export interface SchemeCheck {
   readonly letter: string;
-  /** Verso (numerado desde o começo do bloco pedido) com quem este rima, ou `null`. */
+  /**
+   * Verso (numerado desde o começo do bloco pedido) com quem este rima, ou
+   * `null`. Negativo aponta para `lead`; de `texts.length` em diante, para
+   * `trail`. Use `insideBlock` para saber se é do próprio bloco.
+   */
   readonly ref: number | null;
   readonly target: Rhyme | null;
   /** Palavras que já fecham versos desta letra. Repeti-las não é rimar. */
   readonly used: readonly string[];
 }
 
+const NENHUM: SchemeLead = { texts: [], rhymes: [] };
+
 /**
- * O alvo de cada linha é o verso anterior **mais próximo** com a mesma letra —
- * a mesma escolha de `rhymeTargetFor` no editor, para que o que se aceita aqui
- * continue rimando quando for medido lá.
+ * O alvo de cada linha é o verso anterior **mais próximo** com a mesma letra;
+ * não havendo nenhum antes, o primeiro **depois** do bloco. É a mesma escolha
+ * de `rhymeTargetFor` no editor, para que o que se aceita aqui continue
+ * rimando quando for medido lá.
+ *
+ * O "depois" existe porque poeta compõe de trás para frente: escreve o fecho
+ * primeiro e rima os anteriores com ele. Olhando só para trás, o verso 11 não
+ * via que tinha de rimar com o 14 já escrito, e a régua aprovava qualquer rima.
  *
  * `scheme` começa no primeiro verso de `lead`, não no primeiro do bloco: o
- * bloco é a continuação do que já está escrito. `ref` negativo aponta para
- * dentro do que já estava no poema.
+ * bloco é a continuação do que já está escrito. `trail` são os versos depois
+ * do bloco, e só faz sentido quando o bloco tem tamanho fixo — é pela posição
+ * que se sabe a letra de cada um.
  */
 export function schemeChecks(
   texts: readonly string[],
   rhymesOf: readonly Rhyme[],
   scheme: string,
-  lead: SchemeLead = { texts: [], rhymes: [] },
+  lead: SchemeLead = NENHUM,
+  trail: SchemeLead = NENHUM,
 ): SchemeCheck[] {
   const offset = lead.texts.length;
-  const todos = [...lead.texts, ...texts];
-  const rimas = [...lead.rhymes, ...rhymesOf];
+  const fim = offset + texts.length;
+  const todos = [...lead.texts, ...texts, ...trail.texts];
+  const rimas = [...lead.rhymes, ...rhymesOf, ...trail.rhymes];
   return texts.map((_, i) => {
     const k = offset + i;
     const letter = letterAt(scheme, k);
     if (letter === '') return { letter, ref: null, target: null, used: [] };
+    // Para trás primeiro, do mais próximo ao mais longe; depois os de depois
+    // do bloco. Os do próprio bloco depois deste são conferidos na vez deles.
+    const ordem: number[] = [];
+    for (let j = k - 1; j >= 0; j -= 1) ordem.push(j);
+    for (let j = fim; j < todos.length; j += 1) ordem.push(j);
+
     let ref: number | null = null;
     const used: string[] = [];
-    for (let j = k - 1; j >= 0; j -= 1) {
+    for (const j of ordem) {
       if (letterAt(scheme, j) !== letter) continue;
       const palavra = lastWord(todos[j] ?? '');
       if (palavra !== '') used.push(palavra);
@@ -77,6 +97,24 @@ export function schemeChecks(
       used,
     };
   });
+}
+
+/** O parceiro de rima é um verso do próprio bloco, e não do que já estava escrito. */
+export function insideBlock(check: SchemeCheck, blockSize: number): boolean {
+  return check.ref !== null && check.ref >= 0 && check.ref < blockSize;
+}
+
+/** O verso já escrito com quem este rima, fora do bloco. Vazio se não há. */
+export function writtenPartner(
+  check: SchemeCheck,
+  blockSize: number,
+  lead: SchemeLead,
+  trail: SchemeLead = NENHUM,
+): string {
+  if (check.ref === null || insideBlock(check, blockSize)) return '';
+  return check.ref < 0
+    ? (lead.texts[lead.texts.length + check.ref] ?? '')
+    : (trail.texts[check.ref - blockSize] ?? '');
 }
 
 /**

@@ -21,7 +21,14 @@
 
 import { type MetricSpec, NO_RHYME, type Rhyme } from '@escandir/engine';
 
-import { describeScheme, letterAt, schemeChecks, type SchemeLead } from './esquema.js';
+import {
+  describeScheme,
+  insideBlock,
+  letterAt,
+  schemeChecks,
+  writtenPartner,
+  type SchemeLead,
+} from './esquema.js';
 import type { PoemLine } from './poema.js';
 
 export type ProposalKind = 'verse' | 'stanza';
@@ -58,8 +65,12 @@ export type Task =
       /** Escansão do verso como está: mostra a forma que o substituto tem de imitar. */
       readonly lineScansion: string;
     }
-  /** Estrofe inteira por escrever. */
-  | { readonly kind: 'stanza'; readonly verses: number }
+  /**
+   * Estrofe inteira por escrever, no meio do poema. Com esquema, cada verso
+   * tem a sua letra e rima com os vizinhos já escritos — antes **ou depois**,
+   * porque há quem escreva o fecho primeiro.
+   */
+  | { readonly kind: 'stanza'; readonly verses: number; readonly block?: SchemeBlock }
   /** Um trecho de vários versos já escritos, a refazer inteiro. */
   | { readonly kind: 'passage'; readonly original: readonly string[] }
   /** Comentário do autor a ser atendido. */
@@ -83,7 +94,17 @@ export type Task =
       readonly scheme: string;
       /** Versos já escritos antes do bloco, que o esquema continua. */
       readonly lead: SchemeLead;
+      /** Versos já escritos depois do bloco. Só com extensão fixa. */
+      readonly trail?: SchemeLead;
     };
+
+/** O esquema em volta de um bloco: o que vem antes e o que já está depois. */
+export interface SchemeBlock {
+  /** Esquema do poema, a partir do primeiro verso dele. */
+  readonly scheme: string;
+  readonly lead: SchemeLead;
+  readonly trail?: SchemeLead;
+}
 
 export interface ProposalContext {
   readonly kind: ProposalKind;
@@ -306,7 +327,10 @@ function tarefaLinhas(task: Task): string[] {
       ];
 
     case 'stanza':
-      return [`Escreva a estrofe de ${task.verses} versos que falta.`];
+      return [
+        `Escreva a estrofe de ${task.verses} versos que falta.`,
+        ...(task.block === undefined ? [] : esquemaDoBloco(task.block, task.verses, false)),
+      ];
 
     case 'passage':
       return [
@@ -356,29 +380,43 @@ function tarefaPoema(task: PoemTask): string[] {
   );
 
   const verses = task.verses > 0 ? task.verses : task.scheme.length;
-  const esquema = describeScheme(task.scheme, verses, task.lead.texts.length);
-  if (esquema.length > 0) {
-    partes.push('', ...esquema);
-    if (task.verses <= 0) partes.push('(o esquema cicla: depois do último, recomeça do primeiro)');
-    // Rima com o que já estava escrito: o modelo não tem como adivinhar qual
-    // verso anterior carrega a letra, então diz-se a terminação de cada um.
-    const vazios = Array.from({ length: verses }, () => '');
-    const presos = schemeChecks(
-      vazios,
-      vazios.map(() => NO_RHYME),
-      task.scheme,
-      task.lead,
-    ).flatMap((check, i) => {
-      if (check.ref === null || check.ref >= 0 || check.target === null) return [];
-      const origem = task.lead.texts[task.lead.texts.length + check.ref] ?? '';
-      return [`  o ${i + 1}º verso rima em "-${check.target.tail}", com "${origem}"`];
-    });
-    if (presos.length > 0) partes.push('Rimas que vêm do que já está escrito:', ...presos);
-    partes.push(
-      'Versos de mesma letra rimam entre si por som, da vogal tônica ao fim. A',
-      'mesma palavra repetida não é rima.',
-    );
-  }
+  const block: SchemeBlock = {
+    scheme: task.scheme,
+    lead: task.lead,
+    ...(task.trail === undefined ? {} : { trail: task.trail }),
+  };
+  partes.push(...esquemaDoBloco(block, verses, task.verses <= 0));
+  return partes;
+}
+
+/**
+ * O esquema de um bloco, dito por extenso, com a rima que cada verso herda do
+ * que já está escrito — antes ou depois dele. O modelo não tem como adivinhar
+ * qual verso escrito carrega a letra, então diz-se a terminação e o verso.
+ */
+function esquemaDoBloco(block: SchemeBlock, verses: number, cicla: boolean): string[] {
+  const esquema = describeScheme(block.scheme, verses, block.lead.texts.length);
+  if (esquema.length === 0) return [];
+  const partes: string[] = ['', ...esquema];
+  if (cicla) partes.push('(o esquema cicla: depois do último, recomeça do primeiro)');
+  const vazios = Array.from({ length: verses }, () => '');
+  const presos = schemeChecks(
+    vazios,
+    vazios.map(() => NO_RHYME),
+    block.scheme,
+    block.lead,
+    block.trail,
+  ).flatMap((check, i) => {
+    if (check.target === null || insideBlock(check, verses)) return [];
+    const origem = writtenPartner(check, verses, block.lead, block.trail);
+    const onde = check.ref !== null && check.ref >= verses ? ', que vem depois' : '';
+    return [`  o ${i + 1}º verso rima em "-${check.target.tail}", com "${origem}"${onde}`];
+  });
+  if (presos.length > 0) partes.push('Rimas que vêm do que já está escrito:', ...presos);
+  partes.push(
+    'Versos de mesma letra rimam entre si por som, da vogal tônica ao fim. A',
+    'mesma palavra repetida não é rima.',
+  );
   return partes;
 }
 
