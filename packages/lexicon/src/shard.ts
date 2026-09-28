@@ -27,6 +27,13 @@ export function shardName(index: number): string {
   return `r${index.toString().padStart(2, '0')}.json`;
 }
 
+/** O índice de sentidos se reparte pela palavra, não pelo som. */
+export const SENSE_SHARDS = 64;
+
+export function senseShardName(index: number): string {
+  return `sentidos/s${index.toString().padStart(2, '0')}.json`;
+}
+
 /**
  * Uma palavra do léxico, no formato compacto em que é gravada.
  *

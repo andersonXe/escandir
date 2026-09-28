@@ -9,7 +9,7 @@
  * camada que funciona quando não há IA — e a mesma que a IA consulta.
  */
 
-import { shardName, shardOf, type Manifest, type PackedEntry } from './shard.js';
+import { senseShardName, SENSE_SHARDS, shardName, shardOf, type Manifest, type PackedEntry } from './shard.js';
 
 export interface LexiconEntry {
   readonly word: string;
@@ -162,6 +162,49 @@ export class Lexicon {
     return this.#words;
   }
 
+  readonly #senseShards = new Map<number, Promise<Record<string, string[]>>>();
+
+  /**
+   * As acepções de cada palavra, para o duplo sentido. Só existem para as
+   * palavras com dois sentidos ou mais; a ausência quer dizer "sem registro de
+   * outro sentido", não "sentido único" — o dicionário também tem lacunas.
+   *
+   * Fatia por palavra, como as rimas são por som: consultar "pena" baixa uma
+   * fatia de ~50 KB e não o índice inteiro.
+   */
+  async senses(words: readonly string[], signal?: AbortSignal): Promise<Map<string, readonly string[]>> {
+    const saida = new Map<string, readonly string[]>();
+    const porFatia = new Map<number, string[]>();
+    for (const word of words) {
+      const indice = shardOf(word, SENSE_SHARDS);
+      porFatia.set(indice, [...(porFatia.get(indice) ?? []), word]);
+    }
+    await Promise.all(
+      [...porFatia].map(async ([indice, lista]) => {
+        let pedido = this.#senseShards.get(indice);
+        if (pedido === undefined) {
+          pedido = (async () => {
+            const url = `${this.#baseUrl}/${senseShardName(indice)}`;
+            const response = await fetch(url, signal === undefined ? {} : { signal });
+            if (!response.ok) throw new Error(`sentidos indisponíveis (${response.status})`);
+            return (await response.json()) as Record<string, string[]>;
+          })();
+          const guardado = pedido;
+          guardado.catch(() => {
+            if (this.#senseShards.get(indice) === guardado) this.#senseShards.delete(indice);
+          });
+          this.#senseShards.set(indice, guardado);
+        }
+        const fatia = await pedido;
+        for (const word of lista) {
+          const sentidos = fatia[word];
+          if (sentidos !== undefined) saida.set(word, sentidos);
+        }
+      }),
+    );
+    return saida;
+  }
+
   /** Quantas palavras existem para este som, sem filtro. Barato depois da 1ª busca. */
   async count(sound: string, signal?: AbortSignal): Promise<number> {
     if (sound === '') return 0;
@@ -170,5 +213,5 @@ export class Lexicon {
   }
 }
 
-export { shardName, shardOf, SHARD_COUNT } from './shard.js';
+export { senseShardName, SENSE_SHARDS, shardName, shardOf, SHARD_COUNT } from './shard.js';
 export type { Manifest, PackedEntry } from './shard.js';

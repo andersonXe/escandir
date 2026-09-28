@@ -124,7 +124,7 @@ cobra uma rima por letra em vez de um alvo único para todos os versos.
 ## Estado atual
 
 Camada 6 (proposta por IA) ligada: provedor plugável, OpenAI e Anthropic
-implementados, BYOK com chave em IndexedDB. 133 testes no app cobrem o laço de
+implementados, BYOK com chave em IndexedDB. 139 testes no app cobrem o laço de
 proposta, as ações contextuais, o esquema de rima dentro de um bloco, os limites da importação, a validação do
 endereço e a conta de tokens — sem precisar de chave.
 
@@ -489,6 +489,26 @@ vez que o modelo pede. A amostra prefere o comum e a tradição: aliteração em
 
 A descrição diz que usar não é obrigação, e o pedido cita o som como um dos
 pontos de partida possíveis. Obrigar faria todo verso virar trocadilho.
+
+## Duplo sentido
+
+A ferramenta `sentidos` lista as acepções de palavras, para a que se lê de
+dois jeitos no mesmo verso — "sela" é o assento e é "ele sela a carta".
+
+É a exceção entre as ferramentas. Contagem, rima e som são o que o modelo não
+percebe; significado é o que ele mais domina. O que ele não tem de cabeça é a
+lista completa e confiável das acepções, inclusive a rara — é isso que a
+consulta dá, e não mais.
+
+Fonte: Wiktionary em português, **CC BY-SA 4.0** — o índice gerado herda a
+licença, o código não (ver NOTICE.md). Só entram palavras da lista de sons com
+dois sentidos ou mais: 57 mil, ~50 KB comprimidos por consulta. Forma
+flexionada herda as acepções da base: no Wiktionary "velas" é só "plural de
+vela", e sem herdar perdia o barco, a vigília e o círio.
+
+Ausência não é sentido único: "mar" tem uma acepção só no Wiktionary. A
+ferramenta diz "sem registro de outro sentido", e o modelo sabe que o
+dicionário tem lacunas.
 
 ## Rima idêntica não é rima
 

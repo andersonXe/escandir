@@ -139,6 +139,7 @@ describe('a ferramenta no laço de proposta', () => {
       { lexicon: lexiconFake(palavras), retry: false },
     );
     expect(pedidos[0]?.tools?.map((t) => t.name)).toContain(SONS);
+    expect(pedidos[0]?.tools?.map((t) => t.name)).toContain('sentidos');
   });
 
   it('se a lista não baixa, o modelo recebe o erro e a proposta segue', async () => {

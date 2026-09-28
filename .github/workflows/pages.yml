@@ -79,6 +79,29 @@ jobs:
             .cache/listas/pt_BR.aff \
             apps/editor/public/lexico
 
+      # O Wiktionary em português, na extração do wiktextract, para o índice de
+      # sentidos (ferramenta de duplo sentido). O kaikki.org não versiona o
+      # arquivo; o cache o segura estável entre publicações.
+      - name: Wiktionary em cache
+        id: wikt
+        uses: actions/cache@v6
+        with:
+          path: .cache/wikt
+          key: wiktionary-pt-v1
+
+      - name: baixar o Wiktionary
+        if: steps.wikt.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .cache/wikt
+          curl -fsSL --retry 3 -o .cache/wikt/pt.jsonl.gz \
+            https://kaikki.org/ptwiktionary/raw-wiktextract-data.jsonl.gz
+
+      - name: gerar o índice de sentidos
+        run: |
+          node --max-old-space-size=6000 packages/lexicon/scripts/sentidos.mjs \
+            .cache/wikt/pt.jsonl.gz \
+            apps/editor/public/lexico
+
       - name: montar o site
         # Pages de projeto serve em /<repo>/; o `base` sai daqui.
         env:

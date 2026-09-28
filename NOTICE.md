@@ -41,6 +41,21 @@ https://pt.wikisource.org
 
 Traz o que se escreve em verso e a legenda não tem ("dardeja", "ardentias").
 
+## Wiktionary em português — CC BY-SA 4.0
+
+O índice de sentidos em `apps/editor/public/lexico/sentidos/`, usado pela
+ferramenta de duplo sentido, é gerado por `packages/lexicon/scripts/sentidos.mjs`
+a partir do Wiktionary em português (https://pt.wiktionary.org), na extração
+do wiktextract publicada pelo kaikki.org (https://kaikki.org/ptwiktionary/).
+
+As definições são dos colaboradores do Wiktionary. O índice é obra derivada e
+**está sob a mesma licença, CC BY-SA 4.0**
+(https://creativecommons.org/licenses/by-sa/4.0/): pode ser redistribuído e
+modificado, com atribuição e sob a mesma licença. As definições foram
+encurtadas e as formas flexionadas recebem as acepções da palavra-base. O
+compartilhamento pela mesma licença alcança o índice, não o código do
+projeto, que só o consulta.
+
 ## Curadoria própria
 
 `packages/lexicon/data/acrescentar.txt` e `excluir.txt`: listas mantidas à mão

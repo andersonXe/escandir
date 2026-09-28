@@ -28,6 +28,7 @@ import { insideBlock, lastWord, schemeChecks } from './esquema.js';
 import { diagnose } from './poema.js';
 import { buildSystem, buildUser, SEPARATOR, type ProposalContext } from './prompt.js';
 import { RIMAS, rimasTool, runRimas, wordsOf } from './rimas.js';
+import { runSentidos, SENTIDOS, sentidosTool } from './sentidos.js';
 import { runSons, SONS, sonsTool } from './sons.js';
 import { runTool, toolsFor, type Frame, type SchemeFrame } from './tools.js';
 import { addUsage, NO_USAGE, type CompletionRequest, type CompletionResult, type Message, type Usage } from './types.js';
@@ -325,8 +326,8 @@ export async function propose(
       ? [
           ...toolsFor(current.spec, current.rhymeTarget, frame, scheme),
           ...(podeRimar && alvo !== null ? [rimasTool(alvo, current.spec)] : []),
-          // Jogo de som serve a qualquer verso, com ou sem rima a cumprir.
-          ...(options.lexicon !== undefined ? [sonsTool(current.spec)] : []),
+          // Jogo de som e duplo sentido servem a qualquer verso, com ou sem rima.
+          ...(options.lexicon !== undefined ? [sonsTool(current.spec), sentidosTool()] : []),
         ]
       : undefined;
 
@@ -341,6 +342,9 @@ export async function propose(
         }
         if (nome === SONS && options.lexicon !== undefined) {
           return await runSons(argumentos, options.lexicon, { obra });
+        }
+        if (nome === SENTIDOS && options.lexicon !== undefined) {
+          return await runSentidos(argumentos, options.lexicon, { obra });
         }
         return runTool(nome, argumentos, current.spec, current.rhymeTarget, frame, scheme);
       } catch (erro) {
